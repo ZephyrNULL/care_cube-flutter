@@ -4,7 +4,7 @@
 [![Dart](https://img.shields.io/badge/Dart-v3.1.2-0175C2?logo=dart&logoColor=white)](https://dart.dev)
 [![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
 [![MQTT](https://img.shields.io/badge/MQTT-HiveMQ-3C3C3D?logo=mqtt&logoColor=white)](https://mqtt.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 
 **Care Cube** is a smart medicine box management application designed to help patients and caregivers track medication schedules, monitor storage conditions, and ensure timely dosage through IoT integration.
 
@@ -60,10 +60,7 @@
    flutter run
    ```
 
-## 📱 Screenshots
+## Screenshots
 
 *Coming Soon...*
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
