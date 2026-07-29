@@ -62,5 +62,10 @@
 
 ## Screenshots
 
-*Coming Soon...*
+<p align="center">
+  <img src="screenshots/home.png" width="200" alt="Home Screen">
+  <img src="screenshots/medicine.png" width="200" alt="Medicine Screen">
+  <img src="screenshots/alerts.png" width="200" alt="Alerts Screen">
+  <img src="screenshots/profile.png" width="200" alt="Profile Screen">
+</p>
 
