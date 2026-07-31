@@ -42,12 +42,7 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     // If not in cloud, try local
     savedId ??= prefs.getString('esp32_box_id') ?? '';
     
-    if (savedId.isEmpty) {
-      // Generate a random unique ID for the first time
-      savedId = 'CARE-${Random().nextInt(9000) + 1000}';
-      await prefs.setString('esp32_box_id', savedId);
-      await _supabaseService.saveBoxIdToCloud(savedId);
-    }
+    // REMOVED: Auto-generation of ID here to prevent "fake" connection state
     
     boxIdController.text = savedId;
     _mqttService.statusStream.listen((data) {
@@ -61,7 +56,8 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
 
     // Auto-connect to MQTT if we have an ID
     if (savedId.isNotEmpty) {
-      _mqttService.connect(savedId);
+      final success = await _mqttService.connect(savedId);
+      if (mounted) setState(() => isConnected = success);
     }
   }
 
@@ -71,7 +67,11 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     });
 
     final boxId = boxIdController.text.trim();
-    if (boxId.isEmpty) return;
+    if (boxId.isEmpty) {
+      setState(() => isConnecting = false);
+      _showError('Please enter a Box ID');
+      return;
+    }
 
     final connected = await _mqttService.connect(boxId);
 
@@ -85,25 +85,28 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     if (connected) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('esp32_box_id', boxId);
+      await prefs.setBool('box_connected', true); // Set actual connection flag
       await _supabaseService.saveBoxIdToCloud(boxId);
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Connected to MQTT Broker! Waiting for box status...'),
+          content: Text('Connected Successfully! Alerts are now active.'),
           backgroundColor: Color(0xFF16796F),
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not connect to MQTT broker.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showError('Could not connect. Please check the Box ID.');
     }
   }
 
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.red),
+    );
+  }
+
   void _showEsp32CodeDialog() {
-    final boxId = boxIdController.text.trim();
+    final boxId = boxIdController.text.trim().isEmpty ? 'CARE-1234' : boxIdController.text.trim();
     final code = _esp32Service.generateEsp32ArduinoCode([], boxId);
 
     showDialog(
@@ -127,17 +130,18 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              // Copy to clipboard logic would go here
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Code ready to be copied')),
-              );
+              _showDemoMessage('Code ready to be copied');
             },
             child: const Text('COPY'),
           ),
         ],
       ),
     );
+  }
+
+  void _showDemoMessage(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -149,8 +153,10 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FAF8),
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
       appBar: AppBar(
         title: const Text(
           'Remote Box Connection',
@@ -166,7 +172,7 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
           children: [
             _buildConnectionHeader(),
             const SizedBox(height: 20),
-            _buildConnectionCard(),
+            _buildConnectionCard(isDark),
             const SizedBox(height: 15),
             OutlinedButton.icon(
               onPressed: () {
@@ -186,17 +192,17 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
             ),
             if (isConnected) ...[
               const SizedBox(height: 20),
-              _buildBoxStatusCard(),
+              _buildBoxStatusCard(isDark),
             ],
             const SizedBox(height: 20),
-            _buildMqttInfoCard(),
+            _buildMqttInfoCard(isDark),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: _showEsp32CodeDialog,
               icon: const Icon(Icons.code_rounded),
               label: const Text('GENERATE UPDATED ESP32 CODE'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1C2C39),
+                backgroundColor: isDark ? const Color(0xFF2C3E50) : const Color(0xFF1C2C39),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 15),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -265,13 +271,13 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     );
   }
 
-  Widget _buildConnectionCard() {
+  Widget _buildConnectionCard(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(color: const Color(0xFFE3ECE9)),
+        border: Border.all(color: isDark ? Colors.white10 : const Color(0xFFE3ECE9)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.045),
@@ -283,27 +289,33 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
+          Text(
             'Care Cube Box ID',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF1C2C39),
+              color: isDark ? Colors.white : const Color(0xFF1C2C39),
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Unique ID to identify your box remotely.',
-            style: TextStyle(fontSize: 13, color: Color(0xFF7B898F)),
+            style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : const Color(0xFF7B898F)),
           ),
           const SizedBox(height: 14),
           TextField(
             controller: boxIdController,
+            style: TextStyle(color: isDark ? Colors.white : Colors.black),
             decoration: InputDecoration(
               hintText: 'e.g., CARE-1234',
-              prefixIcon: const Icon(Icons.tag_rounded),
+              hintStyle: TextStyle(color: isDark ? Colors.white24 : null),
+              prefixIcon: Icon(Icons.tag_rounded, color: isDark ? Colors.white70 : null),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade400),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
@@ -350,13 +362,13 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     );
   }
 
-  Widget _buildBoxStatusCard() {
+  Widget _buildBoxStatusCard(bool isDark) {
     if (boxStatus == null) return const SizedBox.shrink();
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFE6F6F1),
+        color: isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1),
         borderRadius: BorderRadius.circular(19),
         border: Border.all(color: const Color(0xFF16796F)),
       ),
@@ -372,21 +384,21 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          _buildStatusRow('Temperature', '${boxStatus!['temperature']}°C'),
-          _buildStatusRow('Humidity', '${boxStatus!['humidity']}%'),
-          _buildStatusRow('Battery', '${boxStatus!['battery']}%'),
+          _buildStatusRow('Temperature', '${boxStatus!['temperature']}°C', isDark),
+          _buildStatusRow('Humidity', '${boxStatus!['humidity']}%', isDark),
+          _buildStatusRow('Battery', '${boxStatus!['battery']}%', isDark),
         ],
       ),
     );
   }
 
-  Widget _buildStatusRow(String label, String value) {
+  Widget _buildStatusRow(String label, String value, bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFF596873))),
+          Text(label, style: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF596873))),
           Text(value,
               style: const TextStyle(
                   fontWeight: FontWeight.bold, color: Color(0xFF135F58))),
@@ -395,35 +407,35 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     );
   }
 
-  Widget _buildMqttInfoCard() {
+  Widget _buildMqttInfoCard(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF3FF),
+        color: isDark ? const Color(0xFF1A212E) : const Color(0xFFEAF3FF),
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(color: const Color(0xFF2563A6)),
+        border: Border.all(color: isDark ? const Color(0xFF2563A6).withOpacity(0.5) : const Color(0xFF2563A6)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.public_rounded, color: Color(0xFF2563A6)),
-              SizedBox(width: 10),
+              const Icon(Icons.public_rounded, color: Color(0xFF2563A6)),
+              const SizedBox(width: 10),
               Text(
                 'Remote Access Info',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A3A6B),
+                  color: isDark ? Colors.white : const Color(0xFF1A3A6B),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'Parents/Caregivers abroad: Just enter the Box ID above to see live data and receive alerts. No local setup is required for you.',
-            style: TextStyle(fontSize: 14, height: 1.6, color: Color(0xFF2563A6)),
+            style: TextStyle(fontSize: 14, height: 1.6, color: isDark ? Colors.white70 : const Color(0xFF2563A6)),
           ),
         ],
       ),
