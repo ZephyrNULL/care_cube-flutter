@@ -71,7 +71,6 @@ class _MedicineScreenState extends State<MedicineScreen> {
     if (success) {
       _notificationService.cancelAlarm(id);
       if (mounted) {
-        // Triggering a local rebuild to refresh the stream
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Schedule deleted')));
       }
@@ -86,6 +85,10 @@ class _MedicineScreenState extends State<MedicineScreen> {
     String selectedCompartment = 'Cup 1';
     bool isSaving = false;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -93,7 +96,7 @@ class _MedicineScreenState extends State<MedicineScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Container(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+          decoration: BoxDecoration(color: backgroundColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(25))),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -103,8 +106,8 @@ class _MedicineScreenState extends State<MedicineScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Add New Medicine', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
-                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                    Text('Add New Medicine', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
+                    IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.close, color: textColor)),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -118,7 +121,7 @@ class _MedicineScreenState extends State<MedicineScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Time', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
+                          Text('Time', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)),
                           const SizedBox(height: 8),
                           InkWell(
                             onTap: () async {
@@ -127,8 +130,8 @@ class _MedicineScreenState extends State<MedicineScreen> {
                             },
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                              decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
-                              child: Row(children: [const Icon(Icons.access_time, size: 20), const SizedBox(width: 8), Text(selectedTime.format(context))]),
+                              decoration: BoxDecoration(border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
+                              child: Row(children: [Icon(Icons.access_time, size: 20, color: textColor), const SizedBox(width: 8), Text(selectedTime.format(context), style: TextStyle(color: textColor))]),
                             ),
                           ),
                         ],
@@ -139,16 +142,18 @@ class _MedicineScreenState extends State<MedicineScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Compartment', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
+                          Text('Compartment', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)),
                           const SizedBox(height: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
+                            decoration: BoxDecoration(border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<String>(
                                 value: selectedCompartment,
                                 isExpanded: true,
-                                items: ['Cup 1', 'Cup 2', 'Cup 3', 'Cup 4'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                                dropdownColor: backgroundColor,
+                                style: TextStyle(color: textColor),
+                                items: ['Cup 1', 'Cup 2', 'Cup 3', 'Cup 4'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: TextStyle(color: textColor)))).toList(),
                                 onChanged: (val) { if (val != null) setModalState(() => selectedCompartment = val); },
                               ),
                             ),
@@ -192,8 +197,12 @@ class _MedicineScreenState extends State<MedicineScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    final subTextColor = isDark ? Colors.white70 : const Color(0xFF66747D);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FAF8),
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
       appBar: AppBar(
         title: const Text('Medicine Schedule', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF16796F),
@@ -237,39 +246,42 @@ class _MedicineScreenState extends State<MedicineScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                const Text('Medicine Box Status', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
-                const SizedBox(height: 6),
-                const Text('Monitor storage conditions and today\'s dose compartments.', style: TextStyle(fontSize: 15, height: 1.4, color: Color(0xFF66747D))),
-                const SizedBox(height: 22),
-                _buildEnvironmentCard(),
-                const SizedBox(height: 24),
-                const Text('Your Schedules', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
-                const SizedBox(height: 15),
-                if (schedules.isEmpty) 
-                   const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('No schedules added yet.', style: TextStyle(color: Color(0xFF66747D)))))
-                else
-                  ListView.separated(
-                    shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: schedules.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) => _buildScheduleCard(schedules[index]),
-                  ),
-                const SizedBox(height: 24),
-                _buildCareCubeStatusSection(),
-                const SizedBox(height: 20),
-                if (!_isConnected) _buildConnectPrompt(),
-              ],
-            );
-          },
+                  Text('Medicine Box Status', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: textColor)),
+                  const SizedBox(height: 6),
+                  Text('Monitor storage conditions and today\'s dose compartments.', style: TextStyle(fontSize: 15, height: 1.4, color: subTextColor)),
+                  const SizedBox(height: 22),
+                  _buildEnvironmentCard(),
+                  const SizedBox(height: 24),
+                  Text('Your Schedules', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
+                  const SizedBox(height: 15),
+                  if (schedules.isEmpty) 
+                    Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('No schedules added yet.', style: TextStyle(color: subTextColor))))
+                  else
+                    ListView.separated(
+                      shrinkWrap: true, 
+                      physics: const NeverScrollableScrollPhysics(), 
+                      itemCount: schedules.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) => _buildScheduleCard(schedules[index]),
+                    ),
+                  const SizedBox(height: 24),
+                  _buildCareCubeStatusSection(),
+                  const SizedBox(height: 20),
+                  if (!_isConnected) _buildConnectPrompt(),
+                ],
+              );
+            },
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildConnectPrompt() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: const Color(0xFFEAF3FF), borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFA3C4FF))),
+      decoration: BoxDecoration(color: isDark ? const Color(0xFF1A212E) : const Color(0xFFEAF3FF), borderRadius: BorderRadius.circular(16), border: Border.all(color: isDark ? const Color(0xFF2563A6).withOpacity(0.5) : const Color(0xFFA3C4FF))),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -279,7 +291,7 @@ class _MedicineScreenState extends State<MedicineScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Connect your ESP32 Care Cube box to see real-time data.', style: TextStyle(fontSize: 13, height: 1.45, color: Color(0xFF2563A6))),
+                Text('Connect your ESP32 Care Cube box to see real-time data.', style: TextStyle(fontSize: 13, height: 1.45, color: isDark ? Colors.white70 : const Color(0xFF2563A6))),
                 const SizedBox(height: 10),
                 SizedBox(
                   height: 36,
@@ -298,20 +310,25 @@ class _MedicineScreenState extends State<MedicineScreen> {
   }
 
   Widget _buildScheduleCard(MedicineSchedule schedule) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    final subTextColor = isDark ? Colors.white60 : const Color(0xFF596873);
+
     return Container(
       padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(19), border: Border.all(color: const Color(0xFFE3ECE9)), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.045), blurRadius: 10, offset: const Offset(0, 5))]),
+      decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(19), border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE3ECE9)), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.045), blurRadius: 10, offset: const Offset(0, 5))]),
       child: Row(
         children: [
-          Container(width: 50, height: 50, decoration: BoxDecoration(color: schedule.isTaken ? Colors.grey.shade100 : const Color(0xFFE6F6F1), borderRadius: BorderRadius.circular(14)), child: Icon(Icons.medication_rounded, color: schedule.isTaken ? Colors.grey : const Color(0xFF16796F), size: 28)),
+          Container(width: 50, height: 50, decoration: BoxDecoration(color: schedule.isTaken ? Colors.grey.withOpacity(0.1) : (isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1)), borderRadius: BorderRadius.circular(14)), child: Icon(Icons.medication_rounded, color: schedule.isTaken ? Colors.grey : const Color(0xFF16796F), size: 28)),
           const SizedBox(width: 15),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(schedule.medicineName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: schedule.isTaken ? Colors.grey : const Color(0xFF1C2C39))),
+              Text(schedule.medicineName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: schedule.isTaken ? Colors.grey : textColor)),
               const SizedBox(height: 4),
               Row(children: [
-                Icon(Icons.access_time_rounded, size: 14, color: schedule.isTaken ? Colors.grey : const Color(0xFF16796F)), const SizedBox(width: 4), Text(schedule.scheduledTime, style: const TextStyle(fontSize: 13, color: Color(0xFF596873))),
-                const SizedBox(width: 12), Icon(Icons.inventory_2_outlined, size: 14, color: schedule.isTaken ? Colors.grey : const Color(0xFF16796F)), const SizedBox(width: 4), Text(schedule.isTaken ? 'Taken' : schedule.compartment, style: TextStyle(fontSize: 13, color: schedule.isTaken ? Colors.green : const Color(0xFF596873))),
+                Icon(Icons.access_time_rounded, size: 14, color: schedule.isTaken ? Colors.grey : const Color(0xFF16796F)), const SizedBox(width: 4), Text(schedule.scheduledTime, style: TextStyle(fontSize: 13, color: subTextColor)),
+                const SizedBox(width: 12), Icon(Icons.inventory_2_outlined, size: 14, color: schedule.isTaken ? Colors.grey : const Color(0xFF16796F)), const SizedBox(width: 4), Text(schedule.isTaken ? 'Taken' : schedule.compartment, style: TextStyle(fontSize: 13, color: schedule.isTaken ? Colors.green : subTextColor)),
               ]),
             ]),
           ),
@@ -352,23 +369,29 @@ class _MedicineScreenState extends State<MedicineScreen> {
   }
 
   Widget _buildCareCubeStatusSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Care Cube Status', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
+        Text('Care Cube Status', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
         const SizedBox(height: 14),
-        _buildStatusCard(icon: _isConnected ? Icons.check_circle_rounded : Icons.cancel_rounded, title: 'Storage Conditions', description: _isConnected ? 'Within safe range.' : 'Box not connected.', iconColour: _isConnected ? const Color(0xFF16796F) : const Color(0xFFB33A3A), backgroundColour: _isConnected ? const Color(0xFFE6F6F1) : const Color(0xFFFFE4E4)),
+        _buildStatusCard(icon: _isConnected ? Icons.check_circle_rounded : Icons.cancel_rounded, title: 'Storage Conditions', description: _isConnected ? 'Within safe range.' : 'Box not connected.', iconColour: _isConnected ? const Color(0xFF16796F) : const Color(0xFFB33A3A), backgroundColour: _isConnected ? (isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1)) : (isDark ? const Color(0xFF2E1A1A) : const Color(0xFFFFE4E4))),
         const SizedBox(height: 12),
-        _buildStatusCard(icon: Icons.battery_full_rounded, title: 'Battery Level', description: '$_batteryLevel% remaining', iconColour: const Color(0xFF7B5B15), backgroundColour: const Color(0xFFFFF6DD)),
+        _buildStatusCard(icon: Icons.battery_full_rounded, title: 'Battery Level', description: '$_batteryLevel% remaining', iconColour: const Color(0xFF7B5B15), backgroundColour: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF6DD)),
       ],
     );
   }
 
   Widget _buildStatusCard({required IconData icon, required String title, required String description, required Color iconColour, required Color backgroundColour}) {
-    return Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: backgroundColour, borderRadius: BorderRadius.circular(17)), child: Row(children: [Container(width: 46, height: 46, decoration: BoxDecoration(color: Colors.white.withOpacity(0.75), borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: iconColour, size: 27)), const SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))), const SizedBox(height: 3), Text(description, style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF596873)))])),]));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: backgroundColour, borderRadius: BorderRadius.circular(17)), child: Row(children: [Container(width: 46, height: 46, decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.white.withOpacity(0.75), borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: iconColour, size: 27)), const SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1C2C39))), const SizedBox(height: 3), Text(description, style: TextStyle(fontSize: 13, height: 1.35, color: isDark ? Colors.white70 : const Color(0xFF596873)))])),]));
   }
 
   Widget _buildTextField({required TextEditingController controller, required String label, required String hint, required IconData icon}) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))), const SizedBox(height: 8), TextField(controller: controller, decoration: InputDecoration(hintText: hint, prefixIcon: Icon(icon, size: 22), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF16796F))), filled: true, fillColor: Colors.grey.shade50))]);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)), const SizedBox(height: 8), TextField(controller: controller, style: TextStyle(color: textColor), decoration: InputDecoration(hintText: hint, hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey), prefixIcon: Icon(icon, size: 22, color: isDark ? Colors.white70 : null), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF16796F))), filled: true, fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50))]);
   }
 }

@@ -40,17 +40,22 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     if (!_isLoaded) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF5FAF8),
-        body: Center(
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
+        body: const Center(
           child: CircularProgressIndicator(color: Color(0xFF16796F)),
         ),
       );
     }
 
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    final subTextColor = isDark ? Colors.white70 : const Color(0xFF68777E);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FAF8),
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
       appBar: AppBar(
         title: const Text(
           'Alerts',
@@ -63,7 +68,6 @@ class _AlertsScreenState extends State<AlertsScreen> {
           TextButton(
             onPressed: () {
               _markAllAsRead();
-
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('All alerts marked as read'),
@@ -86,20 +90,20 @@ class _AlertsScreenState extends State<AlertsScreen> {
           children: [
             _buildSummaryCard(),
             const SizedBox(height: 22),
-            const Text(
+            Text(
               'Recent Alerts',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1C2C39),
+                color: textColor,
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'Important updates from your Care Cube.',
               style: TextStyle(
                 fontSize: 14,
-                color: Color(0xFF68777E),
+                color: subTextColor,
               ),
             ),
             const SizedBox(height: 15),
@@ -109,7 +113,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               title: 'Missed Dose',
               message: 'The morning dose was not taken at 8:00 AM.',
               time: 'Today • 8:30 AM',
-              backgroundColour: const Color(0xFFFFF2E3),
+              backgroundColour: isDark ? const Color(0xFF2E1F1A) : const Color(0xFFFFF2E3),
               iconColour: const Color(0xFFB86B00),
               isUnread: !allRead,
             ),
@@ -121,7 +125,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               title: 'High Temperature',
               message: 'The medicine storage temperature reached 31°C.',
               time: 'Yesterday • 4:15 PM',
-              backgroundColour: const Color(0xFFFFE8E8),
+              backgroundColour: isDark ? const Color(0xFF2E1A1A) : const Color(0xFFFFE8E8),
               iconColour: const Color(0xFFB33A3A),
               isUnread: !allRead,
             ),
@@ -133,7 +137,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               title: 'High Humidity',
               message: 'Humidity rose above the recommended safe range.',
               time: 'Yesterday • 3:55 PM',
-              backgroundColour: const Color(0xFFEAF3FF),
+              backgroundColour: isDark ? const Color(0xFF1A212E) : const Color(0xFFEAF3FF),
               iconColour: const Color(0xFF2563A6),
               isUnread: false,
             ),
@@ -145,7 +149,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               title: 'Low Battery',
               message: 'Care Cube battery level is below 20%.',
               time: 'Monday • 7:10 PM',
-              backgroundColour: const Color(0xFFFFF7DE),
+              backgroundColour: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF7DE),
               iconColour: const Color(0xFF8A6500),
               isUnread: false,
             ),
@@ -157,7 +161,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               title: 'Box Disconnected',
               message: 'The connection with Care Cube was interrupted.',
               time: 'Monday • 6:42 PM',
-              backgroundColour: const Color(0xFFF0ECFF),
+              backgroundColour: isDark ? const Color(0xFF211E2E) : const Color(0xFFF0ECFF),
               iconColour: const Color(0xFF6A4EB6),
               isUnread: false,
             ),
@@ -169,7 +173,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               title: 'Caregiver Notified',
               message: 'The caregiver was notified about the missed dose.',
               time: 'Monday • 6:45 PM',
-              backgroundColour: const Color(0xFFE6F6F1),
+              backgroundColour: isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1),
               iconColour: const Color(0xFF16796F),
               isUnread: false,
             ),
@@ -179,20 +183,20 @@ class _AlertsScreenState extends State<AlertsScreen> {
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF8E7),
+                color: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF8E7),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: const Color(0xFFFFE3A3),
+                  color: isDark ? Colors.orange.withOpacity(0.3) : const Color(0xFFFFE3A3),
                 ),
               ),
-              child: const Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.info_outline_rounded,
                     color: Color(0xFF9A6A00),
                   ),
-                  SizedBox(width: 11),
+                  const SizedBox(width: 11),
                   Expanded(
                     child: Text(
                       'Demo mode: Real alerts will appear after Firebase, '
@@ -200,7 +204,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.45,
-                        color: Color(0xFF6E5200),
+                        color: isDark ? Colors.white70 : const Color(0xFF6E5200),
                       ),
                     ),
                   ),
@@ -304,6 +308,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
     required Color iconColour,
     required bool isUnread,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -320,7 +326,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
             width: 47,
             height: 47,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.78),
+              color: isDark ? Colors.black26 : Colors.white.withOpacity(0.78),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
@@ -339,10 +345,10 @@ class _AlertsScreenState extends State<AlertsScreen> {
                     Expanded(
                       child: Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF1C2C39),
+                          color: isDark ? Colors.white : const Color(0xFF1C2C39),
                         ),
                       ),
                     ),
@@ -360,10 +366,10 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 const SizedBox(height: 5),
                 Text(
                   message,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13.5,
                     height: 1.4,
-                    color: Color(0xFF596873),
+                    color: isDark ? Colors.white70 : const Color(0xFF596873),
                   ),
                 ),
                 const SizedBox(height: 8),

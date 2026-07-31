@@ -72,8 +72,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FAF8),
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
       appBar: AppBar(
         backgroundColor: const Color(0xFF16796F),
         foregroundColor: Colors.white,
@@ -109,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: currentIndex,
         selectedItemColor: const Color(0xFF16796F),
-        unselectedItemColor: Colors.grey,
+        unselectedItemColor: isDark ? Colors.white60 : Colors.grey,
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         type: BottomNavigationBarType.fixed,
         onTap: (index) => setState(() => currentIndex = index),
         items: const [
@@ -123,6 +126,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeContent() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+
     return StreamBuilder<List<MedicineSchedule>>(
       stream: _supabaseService.schedulesStream,
       builder: (context, snapshot) {
@@ -150,13 +156,13 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 _buildReminderCard(nextReminder),
                 const SizedBox(height: 22),
-                const Text('Medicine Compartments',
-                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
+                Text('Medicine Compartments',
+                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
                 const SizedBox(height: 14),
                 _buildCompartmentGrid(schedules),
                 const SizedBox(height: 24),
-                const Text("Today's Progress",
-                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
+                Text("Today's Progress",
+                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
                 const SizedBox(height: 14),
                 _buildProgressCard(takenCount, totalCount, progress),
                 const SizedBox(height: 20),
@@ -193,7 +199,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCompartmentGrid(List<MedicineSchedule> schedules) {
-    if (schedules.isEmpty) return const Text('Add schedules in the Medicine tab.');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (schedules.isEmpty) return Text('Add schedules in the Medicine tab.', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87));
     
     return GridView.builder(
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 14, mainAxisSpacing: 14, childAspectRatio: 1.05),
@@ -214,20 +221,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget buildCompartmentCard({required IconData icon, required String title, required String subtitle, required String status, required bool isTaken}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    final subtitleColor = isDark ? Colors.white60 : Colors.grey;
+
     return Card(
       elevation: 3,
+      color: cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 42, color: isTaken ? Colors.grey : const Color(0xFF16796F)),
             const SizedBox(height: 9),
-            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C2C39))),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: titleColor)),
             const SizedBox(height: 4),
-            Text(subtitle, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+            Text(subtitle, style: TextStyle(fontSize: 14, color: subtitleColor)),
             const SizedBox(height: 6),
             Text(status, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isTaken ? Colors.green : const Color(0xFF16796F))),
           ],
@@ -237,8 +249,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProgressCard(int taken, int total, double progress) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final titleColor = isDark ? Colors.white : Colors.black;
+
     return Card(
       elevation: 3,
+      color: cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -248,7 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Medicine taken', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text('Medicine taken', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: titleColor)),
                 Text('$taken / $total', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF16796F))),
               ],
             ),
@@ -258,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: LinearProgressIndicator(
                 value: progress,
                 minHeight: 12,
-                backgroundColor: const Color(0xFFE0E0E0),
+                backgroundColor: isDark ? Colors.white12 : const Color(0xFFE0E0E0),
                 valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF16796F)),
               ),
             ),
