@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../services/esp32_service.dart';
 import '../services/supabase_config.dart';
+import '../services/notification_service.dart';
 import 'connect_box_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -22,11 +24,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool darkMode = false;
 
   String alarmSound = 'alarm';
-  String language = 'English';
 
   String _boxIp = '';
   bool _isBoxConnected = false;
   final Esp32Service _esp32Service = Esp32Service();
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void initState() {
@@ -43,7 +45,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       vibration = prefs.getBool('vibration') ?? true;
       darkMode = prefs.getBool('darkMode') ?? false;
       alarmSound = prefs.getString('alarm_sound') ?? 'alarm';
-      language = prefs.getString('language') ?? 'English';
       _boxIp = prefs.getString('esp32_ip') ?? '';
       _isBoxConnected = prefs.getBool('box_connected') ?? false;
     });
@@ -85,10 +86,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _launchURL() async {
+    final Uri url = Uri.parse('https://www.carecube.com');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      _showDemoMessage('Could not launch website');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FAF8),
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
       appBar: AppBar(
         title: const Text(
           'Settings',
@@ -108,17 +118,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const _SettingsSectionTitle(title: 'Notifications'),
             const SizedBox(height: 12),
             _buildSettingsCard(
+              isDark: isDark,
               children: [
                 _buildSwitchTile(
                   icon: Icons.alarm_rounded,
                   title: 'Dose Reminders',
                   subtitle: 'Receive alerts when it is time to take a dose',
                   value: doseReminders,
-                  onChanged: (value) {
+                  onChanged: (value) async {
                     setState(() {
                       doseReminders = value;
                     });
-                    _saveSetting('doseReminders', value);
+                    await _saveSetting('doseReminders', value);
+                    if (!value) {
+                      await _notificationService.cancelAllAlarms();
+                      _showDemoMessage('All dose reminders cancelled.');
+                    } else {
+                      _showDemoMessage('Dose reminders will be active for new schedules.');
+                    }
                   },
                 ),
                 const _SettingsDivider(),
@@ -168,6 +185,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const _SettingsSectionTitle(title: 'Reminder Preferences'),
             const SizedBox(height: 12),
             _buildSettingsCard(
+              isDark: isDark,
               children: [
                 _buildActionTile(
                   icon: Icons.music_note_rounded,
@@ -175,15 +193,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: alarmSound == 'alarm' ? 'System Alarm' : 'System Reminder',
                   onTap: () {
                     _showSoundPicker();
-                  },
-                ),
-                const _SettingsDivider(),
-                _buildActionTile(
-                  icon: Icons.language_rounded,
-                  title: 'Language',
-                  subtitle: language,
-                  onTap: () {
-                    _showLanguagePicker();
                   },
                 ),
               ],
@@ -194,6 +203,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const _SettingsSectionTitle(title: 'Appearance'),
             const SizedBox(height: 12),
             _buildSettingsCard(
+              isDark: isDark,
               children: [
                 _buildSwitchTile(
                   icon: Icons.dark_mode_outlined,
@@ -205,14 +215,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       darkMode = value;
                     });
                     _saveSetting('darkMode', value);
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Dark mode preview only. Full theme support will be added later.',
-                        ),
-                      ),
-                    );
+                    themeNotifier.value = value ? ThemeMode.dark : ThemeMode.light;
                   },
                 ),
               ],
@@ -223,6 +226,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const _SettingsSectionTitle(title: 'Care Cube'),
             const SizedBox(height: 12),
             _buildSettingsCard(
+              isDark: isDark,
               children: [
                 _buildActionTile(
                   icon: Icons.wifi_tethering_rounded,
@@ -270,6 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const _SettingsSectionTitle(title: 'Account'),
             const SizedBox(height: 12),
             _buildSettingsCard(
+              isDark: isDark,
               children: [
                 _buildActionTile(
                   icon: Icons.person_outline_rounded,
@@ -297,13 +302,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const _SettingsSectionTitle(title: 'Support'),
             const SizedBox(height: 12),
             _buildSettingsCard(
+              isDark: isDark,
               children: [
                 _buildActionTile(
                   icon: Icons.help_outline_rounded,
                   title: 'Help & Support',
                   subtitle: 'Get help using Care Cube',
                   onTap: () {
-                    _showDemoMessage('Help and support page will be added later.');
+                    _launchURL();
                   },
                 ),
                 const _SettingsDivider(),
@@ -323,20 +329,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: const Color(0xFFE6F6F1),
+                color: isDark ? const Color(0xFF1E2825) : const Color(0xFFE6F6F1),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: const Color(0xFF16796F),
                 ),
               ),
-              child: const Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.check_circle_outline_rounded,
                     color: Color(0xFF16796F),
                   ),
-                  SizedBox(width: 11),
+                  const SizedBox(width: 11),
                   Expanded(
                     child: Text(
                       'Supabase authentication is active. '
@@ -344,7 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.45,
-                        color: Color(0xFF135F58),
+                        color: isDark ? Colors.white70 : const Color(0xFF135F58),
                       ),
                     ),
                   ),
@@ -417,13 +423,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSettingsCard({
     required List<Widget> children,
+    required bool isDark,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         borderRadius: BorderRadius.circular(19),
         border: Border.all(
-          color: const Color(0xFFE3ECE9),
+          color: isDark ? Colors.white12 : const Color(0xFFE3ECE9),
         ),
         boxShadow: [
           BoxShadow(
@@ -444,6 +451,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: 14,
@@ -459,19 +468,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15.5,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF1C2C39),
+                    color: isDark ? Colors.white : const Color(0xFF1C2C39),
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5,
                     height: 1.35,
-                    color: Color(0xFF7B898F),
+                    color: isDark ? Colors.white70 : const Color(0xFF7B898F),
                   ),
                 ),
               ],
@@ -494,6 +503,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(19),
@@ -512,18 +523,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15.5,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF1C2C39),
+                      color: isDark ? Colors.white : const Color(0xFF1C2C39),
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
-                      color: Color(0xFF7B898F),
+                      color: isDark ? Colors.white70 : const Color(0xFF7B898F),
                     ),
                   ),
                 ],
@@ -598,61 +609,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                       _saveSetting('alarm_sound', value);
                       Navigator.pop(sheetContext);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showLanguagePicker() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(24),
-        ),
-      ),
-      builder: (sheetContext) {
-        final languages = ['English', 'සිංහල', 'தமிழ்'];
-
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 25),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Language',
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...languages.map(
-                  (item) => RadioListTile<String>(
-                    value: item,
-                    groupValue: language,
-                    activeColor: const Color(0xFF16796F),
-                    title: Text(item),
-                    onChanged: (value) {
-                      if (value == null) return;
-
-                      setState(() {
-                        language = value;
-                      });
-
-                      _saveSetting('language', value);
-                      Navigator.pop(sheetContext);
-
-                      _showDemoMessage(
-                        'Full language translation will be added later.',
-                      );
                     },
                   ),
                 ),
@@ -824,7 +780,6 @@ class _SettingsSectionTitle extends StatelessWidget {
       style: const TextStyle(
         fontSize: 21,
         fontWeight: FontWeight.bold,
-        color: Color(0xFF1C2C39),
       ),
     );
   }

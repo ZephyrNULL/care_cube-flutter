@@ -24,15 +24,12 @@ class NotificationService {
 
     await _notificationsPlugin.initialize(initializationSettings);
 
-    // Request permissions for Android 13+
     if (Platform.isAndroid) {
       final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
           _notificationsPlugin.resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
 
       await androidImplementation?.requestNotificationsPermission();
-      
-      // Specifically for exact alarms on Android 12+
       await _requestExactAlarmPermission();
     }
   }
@@ -42,9 +39,6 @@ class NotificationService {
       final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
           _notificationsPlugin.resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
-      
-      // requestExactAlarmsPermission was added in newer versions of the plugin
-      // If it doesn't exist, we skip or use a manual intent (but this is usually enough)
       try {
         await androidImplementation?.requestExactAlarmsPermission();
       } catch (e) {
@@ -54,6 +48,12 @@ class NotificationService {
   }
 
   Future<void> scheduleMedicineAlarm(String id, String medicineName, String timeStr) async {
+    final prefs = await SharedPreferences.getInstance();
+    final doseRemindersEnabled = prefs.getBool('doseReminders') ?? true;
+    
+    // If dose reminders are disabled, don't schedule
+    if (!doseRemindersEnabled) return;
+
     DateTime now = DateTime.now();
     DateTime scheduledTime;
     
@@ -74,8 +74,8 @@ class NotificationService {
       scheduledTime = scheduledTime.add(const Duration(days: 1));
     }
 
-    final prefs = await SharedPreferences.getInstance();
     final soundType = prefs.getString('alarm_sound') ?? 'alarm';
+    final vibrationEnabled = prefs.getBool('vibration') ?? true;
     
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       'medicine_alarms',
@@ -84,6 +84,7 @@ class NotificationService {
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      enableVibration: vibrationEnabled,
       category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
       fullScreenIntent: true,
     );
@@ -104,5 +105,9 @@ class NotificationService {
 
   Future<void> cancelAlarm(String id) async {
     await _notificationsPlugin.cancel(id.hashCode);
+  }
+
+  Future<void> cancelAllAlarms() async {
+    await _notificationsPlugin.cancelAll();
   }
 }
