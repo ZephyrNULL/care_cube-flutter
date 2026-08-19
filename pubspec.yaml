@@ -43,6 +43,8 @@ dependencies:
   flutter_local_notifications: ^17.2.2
   timezone: ^0.9.4
   url_launcher: ^6.3.0
+  flutter_system_ringtones: ^1.1.2
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:

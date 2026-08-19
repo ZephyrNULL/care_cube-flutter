@@ -18,10 +18,14 @@ class _MedicineScreenState extends State<MedicineScreen> {
   final MqttService _mqttService = MqttService();
   final NotificationService _notificationService = NotificationService();
   
-  String _temperature = '--';
-  String _humidity = '--';
   bool _isConnected = false;
-  String _batteryLevel = '--';
+
+  int? _sensor1Distance;
+  int? _sensor2Distance;
+  bool? _compartment1Present;
+  bool? _compartment2Present;
+  int _medicineCount = 0;
+  int _totalCompartments = 2;
 
   late Stream<List<MedicineSchedule>> _schedulesStream;
 
@@ -48,14 +52,16 @@ class _MedicineScreenState extends State<MedicineScreen> {
     if (connected) {
       if (mounted) setState(() => _isConnected = true);
       _mqttService.statusStream.listen((data) {
-        if (mounted) {
-          setState(() {
-            _temperature = data['temperature']?.toString() ?? _temperature;
-            _humidity = data['humidity']?.toString() ?? _humidity;
-            _batteryLevel = data['battery']?.toString() ?? _batteryLevel;
-            _isConnected = true;
-          });
-        }
+        if (!mounted) return;
+        setState(() {
+          _sensor1Distance = data['sensor1_distance'] is num ? (data['sensor1_distance'] as num).toInt() : _sensor1Distance;
+          _sensor2Distance = data['sensor2_distance'] is num ? (data['sensor2_distance'] as num).toInt() : _sensor2Distance;
+          _compartment1Present = data['compartment1_present'] is bool ? data['compartment1_present'] as bool : _compartment1Present;
+          _compartment2Present = data['compartment2_present'] is bool ? data['compartment2_present'] as bool : _compartment2Present;
+          _medicineCount = data['medicine_count'] is num ? (data['medicine_count'] as num).toInt() : _medicineCount;
+          _totalCompartments = data['total_compartments'] is num ? (data['total_compartments'] as num).toInt() : _totalCompartments;
+          _isConnected = true;
+        });
       });
     }
   }
@@ -248,7 +254,7 @@ class _MedicineScreenState extends State<MedicineScreen> {
                 children: [
                   Text('Medicine Box Status', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: textColor)),
                   const SizedBox(height: 6),
-                  Text('Monitor storage conditions and today\'s dose compartments.', style: TextStyle(fontSize: 15, height: 1.4, color: subTextColor)),
+                  Text('Monitor your compartments and today\'s dose schedules in real time.', style: TextStyle(fontSize: 15, height: 1.4, color: subTextColor)),
                   const SizedBox(height: 22),
                   _buildEnvironmentCard(),
                   const SizedBox(height: 24),
@@ -346,39 +352,66 @@ class _MedicineScreenState extends State<MedicineScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(children: [Icon(Icons.sensors_rounded, color: Colors.white), SizedBox(width: 8), Text('Live Storage Conditions', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Colors.white))]),
+          const Row(children: [Icon(Icons.medication_rounded, color: Colors.white), SizedBox(width: 8), Text('Live Compartment Status', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Colors.white))]),
           const SizedBox(height: 18),
           Row(children: [
-            Expanded(child: _buildSensorItem(icon: Icons.thermostat_rounded, label: 'Temperature', value: '$_temperature°C')),
+            Expanded(child: _buildCompartmentItem(compartment: 'Cup 1', present: _compartment1Present, distance: _sensor1Distance)),
             Container(width: 1, height: 72, color: Colors.white.withOpacity(0.35)),
-            Expanded(child: _buildSensorItem(icon: Icons.water_drop_rounded, label: 'Humidity', value: '$_humidity%')),
+            Expanded(child: _buildCompartmentItem(compartment: 'Cup 2', present: _compartment2Present, distance: _sensor2Distance)),
           ]),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(color: Colors.white.withOpacity(0.16), borderRadius: BorderRadius.circular(12)),
-            child: Row(children: [Icon(_isConnected ? Icons.update_rounded : Icons.wifi_off_rounded, size: 19, color: Colors.white), const SizedBox(width: 8), Text(_isConnected ? 'Live Remote Status' : 'Offline - using demo data', style: const TextStyle(fontSize: 13, color: Colors.white))]),
+            child: Row(
+              children: [
+                Icon(_isConnected ? Icons.update_rounded : Icons.wifi_off_rounded, size: 19, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _isConnected ? '$_medicineCount of $_totalCompartments compartments filled' : 'Offline - using demo data',
+                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSensorItem({required IconData icon, required String label, required String value}) {
-    return Column(children: [Icon(icon, size: 36, color: Colors.white), const SizedBox(height: 8), Text(value, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 3), Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.86)))]);
+  Widget _buildCompartmentItem({required String compartment, required bool? present, required int? distance}) {
+    final bool filled = present ?? false;
+    final bool known = present != null;
+    return Column(
+      children: [
+        Icon(known && filled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded, size: 36, color: known && filled ? Colors.white : Colors.white70),
+        const SizedBox(height: 8),
+        Text(known ? (filled ? 'Filled' : 'Empty') : '--', style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.white)),
+        const SizedBox(height: 3),
+        Text('$compartment · ${known ? '$distance mm' : '--'}', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.86))),
+      ],
+    );
   }
 
   Widget _buildCareCubeStatusSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+
+    final String compartmentsSummary = [
+      if (_compartment1Present != null) 'Cup 1: ${_compartment1Present! ? 'Filled' : 'Empty'}',
+      if (_compartment2Present != null) 'Cup 2: ${_compartment2Present! ? 'Filled' : 'Empty'}',
+    ].join(' · ');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Care Cube Status', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
         const SizedBox(height: 14),
-        _buildStatusCard(icon: _isConnected ? Icons.check_circle_rounded : Icons.cancel_rounded, title: 'Storage Conditions', description: _isConnected ? 'Within safe range.' : 'Box not connected.', iconColour: _isConnected ? const Color(0xFF16796F) : const Color(0xFFB33A3A), backgroundColour: _isConnected ? (isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1)) : (isDark ? const Color(0xFF2E1A1A) : const Color(0xFFFFE4E4))),
+        _buildStatusCard(icon: _isConnected ? Icons.check_circle_rounded : Icons.cancel_rounded, title: 'Medicine Status', description: _isConnected ? '$_medicineCount of $_totalCompartments compartments filled.' : 'Box not connected.', iconColour: _isConnected ? const Color(0xFF16796F) : const Color(0xFFB33A3A), backgroundColour: _isConnected ? (isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1)) : (isDark ? const Color(0xFF2E1A1A) : const Color(0xFFFFE4E4))),
         const SizedBox(height: 12),
-        _buildStatusCard(icon: Icons.battery_full_rounded, title: 'Battery Level', description: '$_batteryLevel% remaining', iconColour: const Color(0xFF7B5B15), backgroundColour: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF6DD)),
+        _buildStatusCard(icon: Icons.inventory_2_rounded, title: 'Compartments', description: compartmentsSummary.isNotEmpty ? compartmentsSummary : 'Waiting for box data...', iconColour: const Color(0xFF7B5B15), backgroundColour: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF6DD)),
       ],
     );
   }

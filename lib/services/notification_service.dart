@@ -4,6 +4,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'mqtt_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -11,8 +12,11 @@ class NotificationService {
   NotificationService._internal();
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+  bool _isInitialized = false;
 
   Future<void> init() async {
+    if (_isInitialized) return;
+
     tz.initializeTimeZones();
     
     const AndroidInitializationSettings initializationSettingsAndroid =
@@ -32,6 +36,61 @@ class NotificationService {
       await androidImplementation?.requestNotificationsPermission();
       await _requestExactAlarmPermission();
     }
+
+    _listenToMqtt();
+    _isInitialized = true;
+  }
+
+  void _listenToMqtt() {
+    MqttService().messageStream.listen((message) {
+      if (message.contains('REMINDER') || message.contains('MEDICINE BOX')) {
+        showInstantNotification('Care Cube Alert', message);
+      } else if (message.contains('CONFIRMED')) {
+        showInstantNotification('Dose Confirmed', message);
+      }
+    });
+  }
+
+  Future<void> showInstantNotification(String title, String body) async {
+    final prefs = await SharedPreferences.getInstance();
+    final soundType = prefs.getString('alarm_sound') ?? 'alarm';
+    final customSoundUri = prefs.getString('alarm_sound_uri');
+    final vibrationEnabled = prefs.getBool('vibration') ?? true;
+
+    AndroidNotificationDetails androidDetails;
+    
+    if (customSoundUri != null && customSoundUri.isNotEmpty) {
+      androidDetails = AndroidNotificationDetails(
+        'mqtt_alerts_custom_${customSoundUri.hashCode}',
+        'Care Cube MQTT Alerts',
+        channelDescription: 'Alerts received from the smart medicine box',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        sound: UriAndroidNotificationSound(customSoundUri),
+        enableVibration: vibrationEnabled,
+      );
+    } else {
+      androidDetails = AndroidNotificationDetails(
+        'mqtt_alerts_$soundType',
+        'Care Cube MQTT Alerts',
+        channelDescription: 'Alerts received from the smart medicine box',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: vibrationEnabled,
+        category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
+      );
+    }
+
+    final NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+    await _notificationsPlugin.show(
+      DateTime.now().millisecond,
+      title,
+      body,
+      platformDetails,
+    );
   }
 
   Future<void> _requestExactAlarmPermission() async {
@@ -51,7 +110,6 @@ class NotificationService {
     final prefs = await SharedPreferences.getInstance();
     final doseRemindersEnabled = prefs.getBool('doseReminders') ?? true;
     
-    // If dose reminders are disabled, don't schedule
     if (!doseRemindersEnabled) return;
 
     DateTime now = DateTime.now();
@@ -75,19 +133,40 @@ class NotificationService {
     }
 
     final soundType = prefs.getString('alarm_sound') ?? 'alarm';
+    final customSoundUri = prefs.getString('alarm_sound_uri');
     final vibrationEnabled = prefs.getBool('vibration') ?? true;
     
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'medicine_alarms',
-      'Medicine Alarms',
-      channelDescription: 'Alarms for medicine reminders',
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: vibrationEnabled,
-      category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
-      fullScreenIntent: true,
-    );
+    AndroidNotificationDetails androidDetails;
+    
+    if (customSoundUri != null && customSoundUri.isNotEmpty) {
+      final channelId = 'medicine_alarms_custom_${customSoundUri.hashCode}';
+      
+      androidDetails = AndroidNotificationDetails(
+        channelId,
+        'Medicine Alarms',
+        channelDescription: 'Alarms for medicine reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        sound: UriAndroidNotificationSound(customSoundUri),
+        enableVibration: vibrationEnabled,
+        fullScreenIntent: true,
+        category: AndroidNotificationCategory.alarm,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+      );
+    } else {
+      androidDetails = AndroidNotificationDetails(
+        'medicine_alarms_$soundType',
+        'Medicine Alarms',
+        channelDescription: 'Alarms for medicine reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: vibrationEnabled,
+        category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
+        fullScreenIntent: true,
+      );
+    }
 
     final NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
 
@@ -100,6 +179,77 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  Future<void> previewSound(String uri) async {
+    final channelId = 'preview_channel_${uri.hashCode}';
+    
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      channelId,
+      'Sound Preview',
+      channelDescription: 'Previewing alarm sounds',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      sound: UriAndroidNotificationSound(uri),
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+    );
+
+    final NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+    await _notificationsPlugin.show(
+      999,
+      'Care Cube Sound Preview',
+      'This is how your medicine reminder will sound.',
+      platformDetails,
+    );
+  }
+
+  Future<void> stopPreview() async {
+    await _notificationsPlugin.cancel(999);
+  }
+
+  Future<void> showTestNotification(String soundType) async {
+    final prefs = await SharedPreferences.getInstance();
+    final customSoundUri = prefs.getString('alarm_sound_uri');
+    final vibrationEnabled = prefs.getBool('vibration') ?? true;
+
+    AndroidNotificationDetails androidDetails;
+    
+    if (customSoundUri != null && customSoundUri.isNotEmpty) {
+      final channelId = 'medicine_alarms_preview_${customSoundUri.hashCode}';
+      androidDetails = AndroidNotificationDetails(
+        channelId,
+        'Medicine Alarms',
+        channelDescription: 'Alarms for medicine reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        sound: UriAndroidNotificationSound(customSoundUri),
+        enableVibration: vibrationEnabled,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+      );
+    } else {
+      androidDetails = AndroidNotificationDetails(
+        'medicine_alarms_$soundType',
+        'Medicine Alarms',
+        channelDescription: 'Alarms for medicine reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: vibrationEnabled,
+        category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
+      );
+    }
+
+    final NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+    await _notificationsPlugin.show(
+      999,
+      'Sound Preview',
+      'This is how your alert will sound.',
+      platformDetails,
     );
   }
 

@@ -8,6 +8,7 @@ import '../services/esp32_service.dart';
 import '../services/supabase_config.dart';
 import '../services/notification_service.dart';
 import 'connect_box_screen.dart';
+import 'sound_selection_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -24,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool darkMode = false;
 
   String alarmSound = 'alarm';
+  String alarmSoundName = 'System Alarm';
 
   String _boxIp = '';
   bool _isBoxConnected = false;
@@ -45,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       vibration = prefs.getBool('vibration') ?? true;
       darkMode = prefs.getBool('darkMode') ?? false;
       alarmSound = prefs.getString('alarm_sound') ?? 'alarm';
+      alarmSoundName = prefs.getString('alarm_sound_name') ?? (alarmSound == 'alarm' ? 'System Alarm' : 'System Reminder');
       _boxIp = prefs.getString('esp32_ip') ?? '';
       _isBoxConnected = prefs.getBool('box_connected') ?? false;
     });
@@ -190,9 +193,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildActionTile(
                   icon: Icons.music_note_rounded,
                   title: 'Reminder Sound',
-                  subtitle: alarmSound == 'alarm' ? 'System Alarm' : 'System Reminder',
-                  onTap: () {
-                    _showSoundPicker();
+                  subtitle: alarmSoundName,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SoundSelectionScreen(),
+                      ),
+                    );
+                    _loadSettings(); // Reload to get updated sound name
                   },
                 ),
               ],
@@ -563,60 +572,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: const Color(0xFF16796F),
         size: 23,
       ),
-    );
-  }
-
-  void _showSoundPicker() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(24),
-        ),
-      ),
-      builder: (sheetContext) {
-        final sounds = {
-          'alarm': 'System Alarm',
-          'reminder': 'System Reminder',
-        };
-
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 25),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Reminder Sound',
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...sounds.entries.map(
-                  (entry) => RadioListTile<String>(
-                    value: entry.key,
-                    groupValue: alarmSound,
-                    activeColor: const Color(0xFF16796F),
-                    title: Text(entry.value),
-                    onChanged: (value) {
-                      if (value == null) return;
-
-                      setState(() {
-                        alarmSound = value;
-                      });
-
-                      _saveSetting('alarm_sound', value);
-                      Navigator.pop(sheetContext);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 

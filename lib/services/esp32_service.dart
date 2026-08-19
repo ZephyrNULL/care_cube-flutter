@@ -162,7 +162,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   DynamicJsonDocument doc(1024);
   deserializeJson(doc, message);
-  
+
   String command = doc["command"];
   if (command == "add_schedule") {
     if (scheduleCount < 10) {
@@ -171,7 +171,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
       schedules[scheduleCount].time = data["scheduled_time"].as<String>();
       schedules[scheduleCount].medicine = data["medicine_name"].as<String>();
       schedules[scheduleCount].dosage = data["dosage"].as<String>();
-      schedules[scheduleCount].active = true;
+      schedules[scheduleCount].active = data["active"] | true;
       scheduleCount++;
       Serial.println("New schedule added remotely");
     }
@@ -179,6 +179,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
     String comp = doc["data"]["compartment"];
     Serial.println("Opening compartment: " + comp);
     // Add GPIO trigger logic here
+  } else if (command == "dose_taken") {
+    String comp = doc["data"]["compartment"];
+    Serial.println("Dose marked as taken: " + comp);
   }
 }
 
@@ -192,10 +195,30 @@ void reconnect() {
   }
 }
 
+void publishStatus() {
+  // Replace with real VL53L0X sensor readings (mm). -1 = no reading.
+  int sensor1_distance = -1;
+  int sensor2_distance = -1;
+  bool compartment1_present = sensor1_distance >= 0 && sensor1_distance <= 70;
+  bool compartment2_present = sensor2_distance >= 0 && sensor2_distance <= 70;
+
+  DynamicJsonDocument statusDoc(256);
+  statusDoc["box_id"] = box_id;
+  statusDoc["sensor1_distance"] = sensor1_distance;
+  statusDoc["sensor2_distance"] = sensor2_distance;
+  statusDoc["compartment1_present"] = compartment1_present;
+  statusDoc["compartment2_present"] = compartment2_present;
+  statusDoc["medicine_count"] = (compartment1_present ? 1 : 0) + (compartment2_present ? 1 : 0);
+  statusDoc["total_compartments"] = 2;
+  String statusJson;
+  serializeJson(statusDoc, statusJson);
+  client.publish(("care_cube/" + String(box_id) + "/status").c_str(), statusJson.c_str());
+}
+
 void setup() {
   Serial.begin(115200);
   WiFi.begin();
-  
+
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.softAP("CareCube_Setup");
     setupServer.on("/setup", HTTP_POST, []() {
@@ -217,18 +240,11 @@ void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     if (!client.connected()) reconnect();
     client.loop();
-    
-    // Periodically publish status
+
     static unsigned long lastStatus = 0;
-    if (millis() - lastStatus > 10000) {
+    if (millis() - lastStatus > 3000) {
       lastStatus = millis();
-      DynamicJsonDocument statusDoc(256);
-      statusDoc["temperature"] = 26.5;
-      statusDoc["humidity"] = 58;
-      statusDoc["battery"] = 93;
-      String statusJson;
-      serializeJson(statusDoc, statusJson);
-      client.publish(("care_cube/" + String(box_id) + "/status").c_str(), statusJson.c_str());
+      publishStatus();
     }
   } else {
     setupServer.handleClient();

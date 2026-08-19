@@ -1,8 +1,13 @@
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/medicine_schedule.dart';
 
 class SupabaseService {
   final _supabase = Supabase.instance.client;
+
+  // Forces a fresh fetch of schedules after mutations. This keeps the UI in
+  // sync even if Supabase Realtime is not enabled for the schedules table.
+  final _refreshController = StreamController<void>.broadcast();
 
   // Realtime Stream for Schedules
   Stream<List<MedicineSchedule>> get schedulesStream {
@@ -14,8 +19,8 @@ class SupabaseService {
     }
 
     print('Supabase Stream: Starting listen for user $userId');
-    
-    return _supabase
+
+    final realtimeStream = _supabase
         .from('schedules')
         .stream(primaryKey: ['id'])
         .eq('user_id', userId)
@@ -23,11 +28,37 @@ class SupabaseService {
         .map((data) {
           print('Supabase Stream: Received ${data.length} items for $userId');
           return data.map((json) => MedicineSchedule.fromJson(json)).toList();
-        })
-        .handleError((error) {
-          print('Supabase Stream Error: $error');
-          return <MedicineSchedule>[];
         });
+
+    // Merge Realtime events with manual refresh triggers so newly added,
+    // updated or deleted schedules always show up.
+    return Stream.multi((controller) {
+      var cancelled = false;
+      StreamSubscription<List<MedicineSchedule>>? realtimeSub;
+      StreamSubscription<void>? refreshSub;
+
+      realtimeSub = realtimeStream.listen(
+        (data) {
+          if (!cancelled) controller.add(data);
+        },
+        onError: (error) async {
+          print('Supabase Stream Error: $error');
+          final data = await getSchedules();
+          if (!cancelled) controller.add(data);
+        },
+      );
+
+      refreshSub = _refreshController.stream.listen((_) async {
+        final data = await getSchedules();
+        if (!cancelled) controller.add(data);
+      });
+
+      controller.onCancel = () {
+        cancelled = true;
+        realtimeSub?.cancel();
+        refreshSub?.cancel();
+      };
+    });
   }
 
   Future<List<MedicineSchedule>> getSchedules() async {
@@ -69,6 +100,7 @@ class SupabaseService {
       print('Supabase Add: Inserting $data');
       await _supabase.from('schedules').insert(data);
       print('Supabase Add: Success');
+      _refreshController.add(null);
       return true;
     } catch (e) {
       print('Supabase Insert Error: $e');
@@ -81,6 +113,7 @@ class SupabaseService {
       print('Supabase Delete: Removing ID $id');
       await _supabase.from('schedules').delete().eq('id', id);
       print('Supabase Delete: Success');
+      _refreshController.add(null);
       return true;
     } catch (e) {
       print('Supabase Delete Error: $e');
@@ -94,6 +127,7 @@ class SupabaseService {
           .from('schedules')
           .update({'is_taken': taken})
           .eq('id', id);
+      _refreshController.add(null);
       return true;
     } catch (e) {
       print('Supabase Update Taken Error: $e');

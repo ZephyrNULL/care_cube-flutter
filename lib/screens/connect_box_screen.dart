@@ -384,9 +384,9 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          _buildStatusRow('Temperature', '${boxStatus!['temperature']}°C', isDark),
-          _buildStatusRow('Humidity', '${boxStatus!['humidity']}%', isDark),
-          _buildStatusRow('Battery', '${boxStatus!['battery']}%', isDark),
+          _buildStatusRow('Medicine Count', '${boxStatus!['medicine_count'] ?? '-'} / ${boxStatus!['total_compartments'] ?? 2}', isDark),
+          _buildStatusRow('Cup 1', boxStatus!['compartment1_present'] == true ? 'Filled' : 'Empty', isDark),
+          _buildStatusRow('Cup 2', boxStatus!['compartment2_present'] == true ? 'Filled' : 'Empty', isDark),
         ],
       ),
     );

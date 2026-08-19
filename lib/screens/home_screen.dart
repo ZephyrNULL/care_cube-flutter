@@ -21,10 +21,14 @@ class _HomeScreenState extends State<HomeScreen> {
   final MqttService _mqttService = MqttService();
   int currentIndex = 0;
   String firstName = 'User';
+  Map<String, dynamic>? _boxStatus;
+  bool _isBoxConnected = false;
+  late Stream<List<MedicineSchedule>> _schedulesStream;
 
   @override
   void initState() {
     super.initState();
+    _schedulesStream = _supabaseService.schedulesStream;
     loadUserName();
     _initMqtt();
   }
@@ -32,15 +36,34 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initMqtt() async {
     final prefs = await SharedPreferences.getInstance();
     final boxId = prefs.getString('esp32_box_id') ?? '';
-    if (boxId.isNotEmpty) {
-      await _mqttService.connect(boxId);
-      _mqttService.statusStream.listen((data) {
-        if (data.containsKey('dose_taken')) {
-          final compartment = data['dose_taken'].toString();
-          _handleDoseTakenFromBox(compartment);
-        }
-      });
+    if (boxId.isEmpty) return;
+
+    final connected = await _mqttService.connect(boxId);
+    if (connected && mounted) {
+      setState(() => _isBoxConnected = true);
     }
+    _mqttService.statusStream.listen((data) {
+      if (data.containsKey('dose_taken')) {
+        final compartment = data['dose_taken'].toString();
+        _handleDoseTakenFromBox(compartment);
+      }
+      if (mounted) {
+        setState(() {
+          _boxStatus = data;
+          _isBoxConnected = true;
+        });
+      }
+    });
+  }
+
+  String? _liveStatusFor(String compartment) {
+    if (_boxStatus == null) return null;
+    final match = RegExp(r'(\d+)').firstMatch(compartment);
+    if (match == null) return null;
+    final key = 'compartment${match.group(1)}_present';
+    final value = _boxStatus?[key];
+    if (value is! bool) return null;
+    return value ? 'Filled' : 'Empty';
   }
 
   Future<void> _handleDoseTakenFromBox(String compartment) async {
@@ -130,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
 
     return StreamBuilder<List<MedicineSchedule>>(
-      stream: _supabaseService.schedulesStream,
+      stream: _schedulesStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF16796F)));
@@ -161,6 +184,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 14),
                 _buildCompartmentGrid(schedules),
                 const SizedBox(height: 24),
+                _buildVisualCompartmentStatus(),
+                const SizedBox(height: 24),
                 Text("Today's Progress",
                     style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
                 const SizedBox(height: 14),
@@ -171,6 +196,239 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildVisualCompartmentStatus() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    final data = _boxStatus;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Smart Box Live Status',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: _isBoxConnected ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: _isBoxConnected ? Colors.green : Colors.red, width: 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(_isBoxConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                      size: 14, color: _isBoxConnected ? Colors.green : Colors.red),
+                  const SizedBox(width: 4),
+                  Text(_isBoxConnected ? 'Online' : 'Offline',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _isBoxConnected ? Colors.green : Colors.red)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Card(
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 1.5,
+                  children: [
+                    _buildCompartmentIndicator(
+                      label: 'Cup 1',
+                      isPresent: data?['compartment1_present'],
+                    ),
+                    _buildCompartmentIndicator(
+                      label: 'Cup 2',
+                      isPresent: data?['compartment2_present'],
+                    ),
+                    _buildCompartmentIndicator(
+                      label: 'Cup 3',
+                      isPresent: data?['compartment3_present'],
+                    ),
+                    _buildCompartmentIndicator(
+                      label: 'Cup 4',
+                      isPresent: data?['compartment4_present'],
+                    ),
+                  ],
+                ),
+                if (!_isBoxConnected) ...[
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text('Last known status is shown. Connect your Care Cube for live updates.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompartmentIndicator({required String label, dynamic isPresent}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    Color color;
+    IconData icon;
+    String statusText;
+    
+    if (isPresent == null) {
+      color = Colors.blueGrey.withOpacity(0.6);
+      icon = Icons.inventory_2_outlined;
+      statusText = 'No Data';
+    } else if (isPresent == true) {
+      color = const Color(0xFF16796F);
+      icon = Icons.medication_rounded;
+      statusText = 'Filled';
+    } else {
+      color = Colors.orange;
+      icon = Icons.radio_button_unchecked_rounded;
+      statusText = 'Empty';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        children: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              Icon(icon, color: color, size: 22),
+            ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, 
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold, 
+                      fontSize: 14, 
+                      color: isDark ? Colors.white : const Color(0xFF1C2C39)
+                    )),
+                Text(statusText, 
+                    style: TextStyle(
+                      color: color, 
+                      fontSize: 12, 
+                      fontWeight: FontWeight.w600
+                    )),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBoxLiveStatus() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
+    final data = _boxStatus ?? const {};
+
+    final int medicineCount = data['medicine_count'] is num ? (data['medicine_count'] as num).toInt() : 0;
+    final int totalCompartments = data['total_compartments'] is num ? (data['total_compartments'] as num).toInt() : 4;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Care Cube Live Status',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
+            Icon(_isBoxConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                size: 22, color: _isBoxConnected ? const Color(0xFF16796F) : Colors.grey),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF16796F), Color(0xFF2F9C8F)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('$medicineCount of $totalCompartments compartments filled',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  _buildLiveCompartmentTile(label: 'Cup 1', present: data['compartment1_present']),
+                  const SizedBox(width: 8),
+                  _buildLiveCompartmentTile(label: 'Cup 2', present: data['compartment2_present']),
+                  const SizedBox(width: 8),
+                  _buildLiveCompartmentTile(label: 'Cup 3', present: data['compartment3_present']),
+                  const SizedBox(width: 8),
+                  _buildLiveCompartmentTile(label: 'Cup 4', present: data['compartment4_present']),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLiveCompartmentTile({required String label, dynamic present}) {
+    final bool filled = present is bool && present;
+    final bool known = present is bool;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.16),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(filled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                size: 26, color: Colors.white),
+            const SizedBox(height: 6),
+            Text(known ? (filled ? 'Filled' : 'Empty') : '--',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            const SizedBox(height: 2),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9))),
+          ],
+        ),
+      ),
     );
   }
 
@@ -209,12 +467,13 @@ class _HomeScreenState extends State<HomeScreen> {
       itemCount: schedules.length > 4 ? 4 : schedules.length,
       itemBuilder: (context, index) {
         final s = schedules[index];
+        final liveStatus = _liveStatusFor(s.compartment);
         return buildCompartmentCard(
           icon: Icons.medication_rounded,
           title: s.medicineName,
           subtitle: s.scheduledTime,
-          status: s.isTaken ? 'Taken' : s.compartment,
-          isTaken: s.isTaken,
+          status: liveStatus ?? (s.isTaken ? 'Taken' : s.compartment),
+          isTaken: liveStatus == 'Empty' || (liveStatus == null && s.isTaken),
         );
       },
     );

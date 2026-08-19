@@ -61,8 +61,8 @@ class MedicineSchedule {
   Map<String, dynamic> toEsp32Json() {
     return {
       'compartment': compartment,
-      'time': scheduledTime,
-      'medicine': medicineName,
+      'scheduled_time': scheduledTime,
+      'medicine_name': medicineName,
       'dosage': dosage,
       'active': isActive,
     };
