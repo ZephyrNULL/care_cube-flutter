@@ -22,10 +22,14 @@ class _MedicineScreenState extends State<MedicineScreen> {
 
   int? _sensor1Distance;
   int? _sensor2Distance;
+  int? _sensor3Distance;
+  int? _sensor4Distance;
   bool? _compartment1Present;
   bool? _compartment2Present;
+  bool? _compartment3Present;
+  bool? _compartment4Present;
   int _medicineCount = 0;
-  int _totalCompartments = 2;
+  int _totalCompartments = 4;
 
   late Stream<List<MedicineSchedule>> _schedulesStream;
 
@@ -56,8 +60,12 @@ class _MedicineScreenState extends State<MedicineScreen> {
         setState(() {
           _sensor1Distance = data['sensor1_distance'] is num ? (data['sensor1_distance'] as num).toInt() : _sensor1Distance;
           _sensor2Distance = data['sensor2_distance'] is num ? (data['sensor2_distance'] as num).toInt() : _sensor2Distance;
+          _sensor3Distance = data['sensor3_distance'] is num ? (data['sensor3_distance'] as num).toInt() : _sensor3Distance;
+          _sensor4Distance = data['sensor4_distance'] is num ? (data['sensor4_distance'] as num).toInt() : _sensor4Distance;
           _compartment1Present = data['compartment1_present'] is bool ? data['compartment1_present'] as bool : _compartment1Present;
           _compartment2Present = data['compartment2_present'] is bool ? data['compartment2_present'] as bool : _compartment2Present;
+          _compartment3Present = data['compartment3_present'] is bool ? data['compartment3_present'] as bool : _compartment3Present;
+          _compartment4Present = data['compartment4_present'] is bool ? data['compartment4_present'] as bool : _compartment4Present;
           _medicineCount = data['medicine_count'] is num ? (data['medicine_count'] as num).toInt() : _medicineCount;
           _totalCompartments = data['total_compartments'] is num ? (data['total_compartments'] as num).toInt() : _totalCompartments;
           _isConnected = true;
@@ -359,6 +367,15 @@ class _MedicineScreenState extends State<MedicineScreen> {
             Container(width: 1, height: 72, color: Colors.white.withOpacity(0.35)),
             Expanded(child: _buildCompartmentItem(compartment: 'Cup 2', present: _compartment2Present, distance: _sensor2Distance)),
           ]),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Divider(color: Colors.white24, height: 1),
+          ),
+          Row(children: [
+            Expanded(child: _buildCompartmentItem(compartment: 'Cup 3', present: _compartment3Present, distance: _sensor3Distance)),
+            Container(width: 1, height: 72, color: Colors.white.withOpacity(0.35)),
+            Expanded(child: _buildCompartmentItem(compartment: 'Cup 4', present: _compartment4Present, distance: _sensor4Distance)),
+          ]),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -402,6 +419,8 @@ class _MedicineScreenState extends State<MedicineScreen> {
     final String compartmentsSummary = [
       if (_compartment1Present != null) 'Cup 1: ${_compartment1Present! ? 'Filled' : 'Empty'}',
       if (_compartment2Present != null) 'Cup 2: ${_compartment2Present! ? 'Filled' : 'Empty'}',
+      if (_compartment3Present != null) 'Cup 3: ${_compartment3Present! ? 'Filled' : 'Empty'}',
+      if (_compartment4Present != null) 'Cup 4: ${_compartment4Present! ? 'Filled' : 'Empty'}',
     ].join(' · ');
 
     return Column(
