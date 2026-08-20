@@ -1,5 +1,8 @@
 # Care Cube - Smart Medicine Box 💊
 
+[![Version](https://img.shields.io/badge/Version-v2.1.1-blue)](https://github.com/ZephyrNULL/care_cube-flutter)
+[![Build](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/ZephyrNULL/care_cube-flutter)
+[![Platform](https://img.shields.io/badge/Platform-Android-orange)](https://github.com/ZephyrNULL/care_cube-flutter)
 [![Flutter](https://img.shields.io/badge/Flutter-v3.12.2-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-v3.1.2-0175C2?logo=dart&logoColor=white)](https://dart.dev)
 [![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
