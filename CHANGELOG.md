@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2024-05-20
+[![Version](https://img.shields.io/badge/Version-v2.1.0-blue)](https://github.com/ZephyrNULL/care_cube-flutter)
+[![Build](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/ZephyrNULL/care_cube-flutter)
+
+### Added
+- **Cloud Profile Synchronization**: Full integration with Supabase for real-time backup and syncing of user profile data.
+- **Enhanced Profile Editing**: Users can now edit phone numbers, date of birth, gender, blood group, weight, height, address, and more.
+- **Health & Emergency Data**: Dedicated sections for allergies, medical conditions, caregiver details, and emergency contacts are now functional and synchronized.
+- **Improved Authentication**: Custom error handling for duplicate email registrations, guiding existing users to the sign-in screen.
+
+### Fixed
+- Fixed UI responsiveness issues in the Edit Profile screen.
+- Improved loading state handling during cloud data retrieval.
+
 ## [2.0.0] - 2024-05-20
 
 ### Added
