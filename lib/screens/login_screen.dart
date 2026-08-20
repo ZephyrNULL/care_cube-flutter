@@ -75,6 +75,21 @@ class _LoginScreenState extends State<LoginScreen> {
         data: {'full_name': name},
       );
 
+      // Detect if user already exists (Supabase security feature returns user but no identities)
+      if (response.user != null && 
+          response.user!.identities != null && 
+          response.user!.identities!.isEmpty) {
+        if (!mounted) return;
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('User with this email already exists. Please sign in.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('userName', name);
       await prefs.setString('email', email);

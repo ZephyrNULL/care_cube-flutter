@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - **Enhanced Profile Editing**: Users can now edit phone numbers, date of birth, gender, blood group, weight, height, address, and more.
 - **Health & Emergency Data**: Dedicated sections for allergies, medical conditions, caregiver details, and emergency contacts are now functional and synchronized.
 - **Improved Authentication**: Custom error handling for duplicate email registrations, guiding existing users to the sign-in screen.
+- **Identity Detection**: Added logic to detect existing users even when Supabase returns a stealth success response during registration.
 
 ### Fixed
 - Fixed UI responsiveness issues in the Edit Profile screen.
