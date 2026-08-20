@@ -1,6 +1,26 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/mqtt_service.dart';
 import 'connect_box_screen.dart';
+
+class AlertItem {
+  final String icon;
+  final String title;
+  final String message;
+  final String time;
+  final String type;
+  bool isUnread;
+
+  AlertItem({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.time,
+    required this.type,
+    this.isUnread = true,
+  });
+}
 
 class AlertsScreen extends StatefulWidget {
   const AlertsScreen({super.key});
@@ -14,10 +34,14 @@ class _AlertsScreenState extends State<AlertsScreen> {
   bool _isLoaded = false;
   bool _isBoxConnected = false;
 
+  final List<AlertItem> _alerts = [];
+  StreamSubscription? _alertSubscription;
+
   @override
   void initState() {
     super.initState();
     _loadState();
+    _listenToAlerts();
   }
 
   Future<void> _loadState() async {
@@ -25,11 +49,77 @@ class _AlertsScreenState extends State<AlertsScreen> {
     if (mounted) {
       setState(() {
         allRead = prefs.getBool('alerts_all_read') ?? false;
-        // Use box_connected flag for actual verified connection
         _isBoxConnected = prefs.getBool('box_connected') ?? false;
         _isLoaded = true;
       });
     }
+  }
+
+  void _listenToAlerts() {
+    _alertSubscription = MqttService().alertStream.listen((alert) {
+      if (!mounted) return;
+
+      final type = alert['type'] ?? 'info';
+      final title = alert['title'] ?? 'Care Cube';
+      final body = alert['body'] ?? '';
+      final timestamp = alert['timestamp'] ?? DateTime.now().toIso8601String();
+
+      // Parse timestamp for display
+      final dt = DateTime.tryParse(timestamp);
+      final timeStr = dt != null ? _formatTime(dt) : 'Just now';
+
+      // Map type to icon
+      String icon;
+      String bgColor;
+      switch (type) {
+        case 'reminder':
+          icon = 'warning';
+          bgColor = 'orange';
+          break;
+        case 'confirmed':
+          icon = 'check';
+          bgColor = 'green';
+          break;
+        case 'status':
+          icon = 'wifi';
+          bgColor = 'blue';
+          break;
+        default:
+          icon = 'info';
+          bgColor = 'blue';
+      }
+
+      setState(() {
+        _alerts.insert(0, AlertItem(
+          icon: icon,
+          title: title,
+          message: body,
+          time: timeStr,
+          type: type,
+          isUnread: true,
+        ));
+
+        // Keep only last 50 alerts
+        if (_alerts.length > 50) {
+          _alerts.removeRange(50, _alerts.length);
+        }
+      });
+    });
+  }
+
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  void dispose() {
+    _alertSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _markAllAsRead() async {
@@ -38,14 +128,19 @@ class _AlertsScreenState extends State<AlertsScreen> {
     if (mounted) {
       setState(() {
         allRead = true;
+        for (var alert in _alerts) {
+          alert.isUnread = false;
+        }
       });
     }
   }
 
+  int get _unreadCount => _alerts.where((a) => a.isUnread).length;
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     if (!_isLoaded) {
       return Scaffold(
         backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
@@ -69,23 +164,22 @@ class _AlertsScreenState extends State<AlertsScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: _isBoxConnected ? [
-          TextButton(
-            onPressed: () {
-              _markAllAsRead();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('All alerts marked as read'),
+          if (_alerts.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                _markAllAsRead();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('All alerts marked as read')),
+                );
+              },
+              child: const Text(
+                'Mark all read',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
                 ),
-              );
-            },
-            child: const Text(
-              'Mark all read',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
               ),
             ),
-          ),
         ] : null,
       ),
       body: SafeArea(
@@ -96,7 +190,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
-              _buildSummaryCard(), // Alert Centre Summary always visible
+              _buildSummaryCard(),
               const SizedBox(height: 22),
               Text(
                 'Recent Alerts',
@@ -108,9 +202,9 @@ class _AlertsScreenState extends State<AlertsScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                _isBoxConnected 
-                  ? 'Important updates from your Care Cube.'
-                  : 'Link your box to receive real-time alerts.',
+                _isBoxConnected
+                    ? 'Important updates from your Care Cube.'
+                    : 'Link your box to receive real-time alerts.',
                 style: TextStyle(
                   fontSize: 14,
                   color: subTextColor,
@@ -120,72 +214,55 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
               if (!_isBoxConnected)
                 _buildInlineConnectPrompt(textColor, subTextColor, isDark)
+              else if (_alerts.isEmpty)
+                _buildEmptyAlertsState(isDark, textColor, subTextColor)
               else ...[
-                _buildAlertCard(
-                  icon: Icons.warning_amber_rounded,
-                  title: 'Missed Dose',
-                  message: 'The morning dose was not taken at 8:00 AM.',
-                  time: 'Today • 8:30 AM',
-                  backgroundColour: isDark ? const Color(0xFF2E1F1A) : const Color(0xFFFFF2E3),
-                  iconColour: const Color(0xFFB86B00),
-                  isUnread: !allRead,
-                ),
-                const SizedBox(height: 12),
-                _buildAlertCard(
-                  icon: Icons.thermostat_rounded,
-                  title: 'High Temperature',
-                  message: 'The medicine storage temperature reached 31°C.',
-                  time: 'Yesterday • 4:15 PM',
-                  backgroundColour: isDark ? const Color(0xFF2E1A1A) : const Color(0xFFFFE8E8),
-                  iconColour: const Color(0xFFB33A3A),
-                  isUnread: !allRead,
-                ),
-                const SizedBox(height: 12),
-                _buildAlertCard(
-                  icon: Icons.water_drop_rounded,
-                  title: 'High Humidity',
-                  message: 'Humidity rose above the recommended safe range.',
-                  time: 'Yesterday • 3:55 PM',
-                  backgroundColour: isDark ? const Color(0xFF1A212E) : const Color(0xFFEAF3FF),
-                  iconColour: const Color(0xFF2563A6),
-                  isUnread: false,
-                ),
-                const SizedBox(height: 12),
-                _buildAlertCard(
-                  icon: Icons.battery_alert_rounded,
-                  title: 'Low Battery',
-                  message: 'Care Cube battery level is below 20%.',
-                  time: 'Monday • 7:10 PM',
-                  backgroundColour: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF7DE),
-                  iconColour: const Color(0xFF8A6500),
-                  isUnread: false,
-                ),
-                const SizedBox(height: 12),
-                _buildAlertCard(
-                  icon: Icons.wifi_off_rounded,
-                  title: 'Box Disconnected',
-                  message: 'The connection with Care Cube was interrupted.',
-                  time: 'Monday • 6:42 PM',
-                  backgroundColour: isDark ? const Color(0xFF211E2E) : const Color(0xFFF0ECFF),
-                  iconColour: const Color(0xFF6A4EB6),
-                  isUnread: false,
-                ),
-                const SizedBox(height: 12),
-                _buildAlertCard(
-                  icon: Icons.person_pin_circle_outlined,
-                  title: 'Caregiver Notified',
-                  message: 'The caregiver was notified about the missed dose.',
-                  time: 'Monday • 6:45 PM',
-                  backgroundColour: isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1),
-                  iconColour: const Color(0xFF16796F),
-                  isUnread: false,
-                ),
-                const SizedBox(height: 18),
-                _buildDemoModeInfo(isDark),
+                for (var alert in _alerts)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _buildAlertCard(
+                      alert: alert,
+                      isDark: isDark,
+                    ),
+                  ),
               ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyAlertsState(bool isDark, Color textColor, Color subTextColor) {
+    return Container(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        children: [
+          Icon(
+            Icons.notifications_none_rounded,
+            size: 64,
+            color: isDark ? Colors.white24 : Colors.grey.shade300,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No alerts yet',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Alerts from your Care Cube will appear here when medicine reminders are triggered.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: subTextColor,
+              height: 1.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -248,49 +325,12 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
-  Widget _buildDemoModeInfo(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF8E7),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.orange.withOpacity(0.3) : const Color(0xFFFFE3A3),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: Color(0xFF9A6A00),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Text(
-              'Demo mode: Real alerts will appear after Firebase, '
-                  'notifications and ESP32 are connected.',
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.45,
-                color: isDark ? Colors.white70 : const Color(0xFF6E5200),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSummaryCard() {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF16796F),
-            Color(0xFF2F9C8F),
-          ],
+          colors: [Color(0xFF16796F), Color(0xFF2F9C8F)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -333,7 +373,9 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  !_isBoxConnected ? 'Connect box to start' : (allRead ? 'No unread alerts' : '2 alerts need your attention'),
+                  !_isBoxConnected
+                      ? 'Connect box to start'
+                      : (_unreadCount == 0 ? 'No unread alerts' : '$_unreadCount unread alert${_unreadCount == 1 ? '' : 's'}'),
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white.withOpacity(0.9),
@@ -351,7 +393,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               shape: BoxShape.circle,
             ),
             child: Text(
-              !_isBoxConnected ? '!' : (allRead ? '0' : '2'),
+              !_isBoxConnected ? '!' : '$_unreadCount',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -365,23 +407,42 @@ class _AlertsScreenState extends State<AlertsScreen> {
   }
 
   Widget _buildAlertCard({
-    required IconData icon,
-    required String title,
-    required String message,
-    required String time,
-    required Color backgroundColour,
-    required Color iconColour,
-    required bool isUnread,
+    required AlertItem alert,
+    required bool isDark,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+    IconData icon;
+    Color backgroundColour;
+    Color iconColour;
+
+    switch (alert.icon) {
+      case 'warning':
+        icon = Icons.warning_amber_rounded;
+        backgroundColour = isDark ? const Color(0xFF2E1F1A) : const Color(0xFFFFF2E3);
+        iconColour = const Color(0xFFB86B00);
+        break;
+      case 'check':
+        icon = Icons.check_circle_rounded;
+        backgroundColour = isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1);
+        iconColour = const Color(0xFF16796F);
+        break;
+      case 'wifi':
+        icon = Icons.wifi_off_rounded;
+        backgroundColour = isDark ? const Color(0xFF211E2E) : const Color(0xFFF0ECFF);
+        iconColour = const Color(0xFF6A4EB6);
+        break;
+      default:
+        icon = Icons.info_outline_rounded;
+        backgroundColour = isDark ? const Color(0xFF1A212E) : const Color(0xFFEAF3FF);
+        iconColour = const Color(0xFF2563A6);
+    }
+
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: backgroundColour,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isUnread ? iconColour.withOpacity(0.35) : Colors.transparent,
+          color: alert.isUnread ? iconColour.withOpacity(0.35) : Colors.transparent,
         ),
       ),
       child: Row(
@@ -409,7 +470,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        title,
+                        alert.title,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -417,7 +478,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                         ),
                       ),
                     ),
-                    if (isUnread)
+                    if (alert.isUnread)
                       Container(
                         width: 9,
                         height: 9,
@@ -430,7 +491,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  message,
+                  alert.message,
                   style: TextStyle(
                     fontSize: 13.5,
                     height: 1.4,
@@ -439,7 +500,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  time,
+                  alert.time,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

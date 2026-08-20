@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../services/esp32_service.dart';
+import '../services/mqtt_service.dart';
 import '../services/supabase_config.dart';
 import '../services/notification_service.dart';
 import 'connect_box_screen.dart';
@@ -29,8 +30,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _boxIp = '';
   bool _isBoxConnected = false;
-  final Esp32Service _esp32Service = Esp32Service();
+  final MqttService _mqttService = MqttService();
   final NotificationService _notificationService = NotificationService();
+  Map<String, dynamic>? _lastBoxStatus;
 
   @override
   void initState() {
@@ -51,16 +53,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _boxIp = prefs.getString('esp32_ip') ?? '';
       _isBoxConnected = prefs.getBool('box_connected') ?? false;
     });
-
-    if (_boxIp.isNotEmpty) {
-      _esp32Service.setBoxIp(_boxIp);
-      final connected = await _esp32Service.testConnection();
-      if (mounted) {
-        setState(() {
-          _isBoxConnected = connected;
-        });
-      }
-    }
   }
 
   Future<void> _saveSetting(String key, dynamic value) async {
@@ -74,15 +66,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _syncData() async {
     if (_isBoxConnected) {
-      final status = await _esp32Service.getBoxStatus();
-      if (status != null && mounted) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('box_temperature', status['temperature']?.toString() ?? '26.5');
-        await prefs.setString('box_humidity', status['humidity']?.toString() ?? '58');
-        await prefs.setString('box_battery', status['battery']?.toString() ?? '93');
-        _showDemoMessage('Data synced from Care Cube box successfully!');
-      } else {
-        _showDemoMessage('Failed to sync data from box.');
+      // Try to get latest status from MQTT
+      try {
+        final status = await _mqttService.statusStream.first
+            .timeout(const Duration(seconds: 5));
+        if (mounted) {
+          setState(() => _lastBoxStatus = status);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('box_temperature', status['temperature']?.toString() ?? '--');
+          await prefs.setString('box_humidity', status['humidity']?.toString() ?? '--');
+          _showDemoMessage('Data synced from Care Cube box via MQTT!');
+        }
+      } catch (e) {
+        _showDemoMessage('Waiting for box data... Make sure box is online.');
       }
     } else {
       _showDemoMessage('Box not connected. Connect first to sync.');
@@ -652,10 +648,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(dialogContext);
-
-                if (_isBoxConnected) {
-                  await _esp32Service.resetBox();
-                }
 
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.remove('esp32_ip');

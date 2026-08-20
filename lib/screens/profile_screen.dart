@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
+import '../services/supabase_service.dart';
 import 'edit_profile_screen.dart';
 import 'login_screen.dart';
 
@@ -45,36 +46,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> loadProfile() async {
-    final SharedPreferences prefs =
-        await SharedPreferences.getInstance();
-
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
     final user = supabase.auth.currentUser;
     final supabaseEmail = user?.email ?? '';
+
+    // Try cloud fetch with timeout
+    final cloudProfile = await SupabaseService().getProfile().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => null,
+    );
 
     if (!mounted) return;
 
     setState(() {
-      fullName = prefs.getString('fullName') ?? prefs.getString('userName') ?? '';
+      fullName = cloudProfile?['full_name'] ?? prefs.getString('fullName') ?? prefs.getString('userName') ?? '';
       email = supabaseEmail.isNotEmpty ? supabaseEmail : (prefs.getString('email') ?? '');
-      phone = prefs.getString('phone') ?? '';
-      dateOfBirth = prefs.getString('dob') ?? '';
-      gender = prefs.getString('gender') ?? '';
-      bloodGroup = prefs.getString('bloodGroup') ?? '';
-      weight = prefs.getString('weight') ?? '';
-      height = prefs.getString('height') ?? '';
-      address = prefs.getString('address') ?? '';
+      phone = cloudProfile?['phone'] ?? prefs.getString('phone') ?? '';
+      dateOfBirth = cloudProfile?['dob'] ?? prefs.getString('dob') ?? '';
+      gender = cloudProfile?['gender'] ?? prefs.getString('gender') ?? '';
+      bloodGroup = cloudProfile?['blood_group'] ?? prefs.getString('bloodGroup') ?? '';
+      weight = cloudProfile?['weight'] ?? prefs.getString('weight') ?? '';
+      height = cloudProfile?['height'] ?? prefs.getString('height') ?? '';
+      address = cloudProfile?['address'] ?? prefs.getString('address') ?? '';
 
-      allergies = prefs.getString('allergies') ?? '';
-      conditions = prefs.getString('conditions') ?? '';
+      allergies = cloudProfile?['allergies'] ?? prefs.getString('allergies') ?? '';
+      conditions = cloudProfile?['conditions'] ?? prefs.getString('conditions') ?? '';
 
-      caregiverName = prefs.getString('caregiverName') ?? '';
-      relationship = prefs.getString('relationship') ?? '';
-      caregiverPhone = prefs.getString('caregiverPhone') ?? '';
-      caregiverEmail = prefs.getString('caregiverEmail') ?? '';
+      caregiverName = cloudProfile?['caregiver_name'] ?? prefs.getString('caregiverName') ?? '';
+      relationship = cloudProfile?['relationship'] ?? prefs.getString('relationship') ?? '';
+      caregiverPhone = cloudProfile?['caregiver_phone'] ?? prefs.getString('caregiverPhone') ?? '';
+      caregiverEmail = cloudProfile?['caregiver_email'] ?? prefs.getString('caregiverEmail') ?? '';
 
-      emergencyName = prefs.getString('emergencyName') ?? '';
-      emergencyPhone = prefs.getString('emergencyPhone') ?? '';
-      hospital = prefs.getString('hospital') ?? '';
+      emergencyName = cloudProfile?['emergency_name'] ?? prefs.getString('emergencyName') ?? '';
+      emergencyPhone = cloudProfile?['emergency_phone'] ?? prefs.getString('emergencyPhone') ?? '';
+      hospital = cloudProfile?['hospital'] ?? prefs.getString('hospital') ?? '';
 
       isLoading = false;
     });

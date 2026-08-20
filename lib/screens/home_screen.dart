@@ -96,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5FAF8),
       appBar: AppBar(
@@ -107,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${getGreeting()}, $firstName 👋',
+            Text('${getGreeting()}, $firstName',
                 style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Colors.white)),
             const SizedBox(height: 4),
             Text(DateFormat('EEEE, dd MMMM yyyy').format(DateTime.now()),
@@ -119,7 +119,13 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
             icon: const Icon(Icons.settings_rounded, size: 28),
           ),
-          IconButton(onPressed: () {}, icon: const Icon(Icons.notifications_none_rounded, size: 28)),
+          IconButton(
+            onPressed: () {
+              final index = 2;
+              setState(() => currentIndex = index);
+            },
+            icon: const Icon(Icons.notifications_none_rounded, size: 28),
+          ),
         ],
       ),
       body: IndexedStack(
@@ -158,17 +164,17 @@ class _HomeScreenState extends State<HomeScreen> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFF16796F)));
         }
-        
+
         final schedules = snapshot.data ?? [];
         final takenCount = schedules.where((s) => s.isTaken).length;
         final totalCount = schedules.length;
         final progress = totalCount == 0 ? 0.0 : takenCount / totalCount;
-        
+
         final nextReminder = schedules.firstWhere((s) => !s.isTaken, orElse: () => schedules.isNotEmpty ? schedules.first : MedicineSchedule(id: '', userId: '', medicineName: 'No upcoming doses', compartment: '', scheduledTime: '--', dosage: ''));
 
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() {}); // Trigger refresh
+            setState(() {});
           },
           color: const Color(0xFF16796F),
           child: SingleChildScrollView(
@@ -178,7 +184,11 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildReminderCard(nextReminder),
-                const SizedBox(height: 22),
+                const SizedBox(height: 18),
+                if (_isBoxConnected && _boxStatus != null) ...[
+                  _buildEnvironmentCard(),
+                  const SizedBox(height: 22),
+                ],
                 Text('Medicine Compartments',
                     style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
                 const SizedBox(height: 14),
@@ -196,6 +206,76 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildEnvironmentCard() {
+    final temp = _boxStatus?['temperature'];
+    final hum = _boxStatus?['humidity'];
+    final tempStr = temp is num ? temp.toStringAsFixed(1) : '--';
+    final humStr = hum is num ? hum.toStringAsFixed(0) : '--';
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF16796F), Color(0xFF2F9C8F)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF16796F).withOpacity(0.22),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.sensors_rounded, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Box Environment', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Colors.white)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildEnvItem(
+                  icon: Icons.thermostat_rounded,
+                  label: 'Temperature',
+                  value: '$tempStr°C',
+                ),
+              ),
+              Container(width: 1, height: 56, color: Colors.white.withOpacity(0.35)),
+              Expanded(
+                child: _buildEnvItem(
+                  icon: Icons.water_drop_rounded,
+                  label: 'Humidity',
+                  value: '$humStr%',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnvItem({required IconData icon, required String label, required String value}) {
+    return Column(
+      children: [
+        Icon(icon, size: 28, color: Colors.white),
+        const SizedBox(height: 6),
+        Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+        const SizedBox(height: 3),
+        Text(label, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.86))),
+      ],
     );
   }
 
@@ -251,18 +331,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildCompartmentIndicator(
                       label: 'Cup 1',
                       isPresent: data?['compartment1_present'],
+                      distance: data?['sensor1_distance'],
                     ),
                     _buildCompartmentIndicator(
                       label: 'Cup 2',
                       isPresent: data?['compartment2_present'],
+                      distance: data?['sensor2_distance'],
                     ),
                     _buildCompartmentIndicator(
                       label: 'Cup 3',
                       isPresent: data?['compartment3_present'],
+                      distance: data?['sensor3_distance'],
                     ),
                     _buildCompartmentIndicator(
                       label: 'Cup 4',
                       isPresent: data?['compartment4_present'],
+                      distance: data?['sensor4_distance'],
                     ),
                   ],
                 ),
@@ -270,7 +354,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   const Divider(),
                   const SizedBox(height: 8),
-                  const Text('Last known status is shown. Connect your Care Cube for live updates.',
+                  const Text('Connect your Care Cube for live updates.',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic)),
                 ],
@@ -282,13 +366,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildCompartmentIndicator({required String label, dynamic isPresent}) {
+  Widget _buildCompartmentIndicator({required String label, dynamic isPresent, dynamic distance}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     Color color;
     IconData icon;
     String statusText;
-    
+
     if (isPresent == null) {
       color = Colors.blueGrey.withOpacity(0.6);
       icon = Icons.inventory_2_outlined;
@@ -302,6 +386,8 @@ class _HomeScreenState extends State<HomeScreen> {
       icon = Icons.radio_button_unchecked_rounded;
       statusText = 'Empty';
     }
+
+    final distStr = distance is num ? '${distance.toInt()} mm' : '--';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -331,103 +417,24 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, 
+                Text(label,
                     style: TextStyle(
-                      fontWeight: FontWeight.bold, 
-                      fontSize: 14, 
-                      color: isDark ? Colors.white : const Color(0xFF1C2C39)
-                    )),
-                Text(statusText, 
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: isDark ? Colors.white : const Color(0xFF1C2C39))),
+                Text(statusText,
                     style: TextStyle(
-                      color: color, 
-                      fontSize: 12, 
-                      fontWeight: FontWeight.w600
-                    )),
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+                Text(distStr,
+                    style: TextStyle(
+                        color: isDark ? Colors.white38 : Colors.grey,
+                        fontSize: 10)),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBoxLiveStatus() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
-    final data = _boxStatus ?? const {};
-
-    final int medicineCount = data['medicine_count'] is num ? (data['medicine_count'] as num).toInt() : 0;
-    final int totalCompartments = data['total_compartments'] is num ? (data['total_compartments'] as num).toInt() : 4;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Care Cube Live Status',
-                style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
-            Icon(_isBoxConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                size: 22, color: _isBoxConnected ? const Color(0xFF16796F) : Colors.grey),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF16796F), Color(0xFF2F9C8F)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('$medicineCount of $totalCompartments compartments filled',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  _buildLiveCompartmentTile(label: 'Cup 1', present: data['compartment1_present']),
-                  const SizedBox(width: 8),
-                  _buildLiveCompartmentTile(label: 'Cup 2', present: data['compartment2_present']),
-                  const SizedBox(width: 8),
-                  _buildLiveCompartmentTile(label: 'Cup 3', present: data['compartment3_present']),
-                  const SizedBox(width: 8),
-                  _buildLiveCompartmentTile(label: 'Cup 4', present: data['compartment4_present']),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLiveCompartmentTile({required String label, dynamic present}) {
-    final bool filled = present is bool && present;
-    final bool known = present is bool;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.16),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(filled ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                size: 26, color: Colors.white),
-            const SizedBox(height: 6),
-            Text(known ? (filled ? 'Filled' : 'Empty') : '--',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9))),
-          ],
-        ),
       ),
     );
   }
@@ -443,11 +450,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('💊 Next Reminder', style: TextStyle(color: Colors.white70, fontSize: 16)),
+            const Text('Next Reminder', style: TextStyle(color: Colors.white70, fontSize: 16)),
             const SizedBox(height: 10),
             Text(s.medicineName, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text('⏰ ${s.scheduledTime}', style: const TextStyle(color: Colors.white, fontSize: 18)),
+            Text('Time: ${s.scheduledTime}', style: const TextStyle(color: Colors.white, fontSize: 18)),
             const SizedBox(height: 10),
             Text(s.isTaken ? 'Dose Taken' : 'Ready to take - ${s.compartment}', style: const TextStyle(color: Colors.white70, fontSize: 15)),
           ],
@@ -459,7 +466,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildCompartmentGrid(List<MedicineSchedule> schedules) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (schedules.isEmpty) return Text('Add schedules in the Medicine tab.', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87));
-    
+
     return GridView.builder(
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 14, mainAxisSpacing: 14, childAspectRatio: 1.05),
       shrinkWrap: true,

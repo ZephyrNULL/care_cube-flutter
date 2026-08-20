@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:math';
 
 import '../services/mqtt_service.dart';
 import '../services/esp32_service.dart';
 import '../services/supabase_service.dart';
-import '../models/medicine_schedule.dart';
-import '../main.dart';
+
 
 import 'setup_wizard_screen.dart';
 
@@ -22,7 +20,7 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
   final MqttService _mqttService = MqttService();
   final Esp32Service _esp32Service = Esp32Service();
   final SupabaseService _supabaseService = SupabaseService();
-  
+
   bool isConnecting = false;
   bool isConnected = false;
   Map<String, dynamic>? boxStatus;
@@ -35,15 +33,10 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
 
   Future<void> _loadSavedBoxId() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // First try cloud
+
     String? savedId = await _supabaseService.getBoxIdFromCloud();
-    
-    // If not in cloud, try local
     savedId ??= prefs.getString('esp32_box_id') ?? '';
-    
-    // REMOVED: Auto-generation of ID here to prevent "fake" connection state
-    
+
     boxIdController.text = savedId;
     _mqttService.statusStream.listen((data) {
       if (mounted) {
@@ -54,7 +47,6 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
       }
     });
 
-    // Auto-connect to MQTT if we have an ID
     if (savedId.isNotEmpty) {
       final success = await _mqttService.connect(savedId);
       if (mounted) setState(() => isConnected = success);
@@ -85,9 +77,9 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     if (connected) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('esp32_box_id', boxId);
-      await prefs.setBool('box_connected', true); // Set actual connection flag
+      await prefs.setBool('box_connected', true);
       await _supabaseService.saveBoxIdToCloud(boxId);
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Connected Successfully! Alerts are now active.'),
@@ -112,6 +104,7 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('ESP32 Arduino Code'),
         content: SizedBox(
           width: double.maxFinite,
@@ -131,7 +124,9 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _showDemoMessage('Code ready to be copied');
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Code ready to be copied')),
+              );
             },
             child: const Text('COPY'),
           ),
@@ -140,14 +135,9 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
     );
   }
 
-  void _showDemoMessage(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   @override
   void dispose() {
     boxIdController.dispose();
-    _mqttService.disconnect();
     super.dispose();
   }
 
@@ -190,7 +180,7 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            if (isConnected) ...[
+            if (isConnected && boxStatus != null) ...[
               const SizedBox(height: 20),
               _buildBoxStatusCard(isDark),
             ],
@@ -365,6 +355,15 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
   Widget _buildBoxStatusCard(bool isDark) {
     if (boxStatus == null) return const SizedBox.shrink();
 
+    final temp = boxStatus!['temperature'];
+    final hum = boxStatus!['humidity'];
+    final s1Dist = boxStatus!['sensor1_distance'];
+    final s2Dist = boxStatus!['sensor2_distance'];
+    final s1Reminder = boxStatus!['s1_reminder_active'] == true;
+    final s2Reminder = boxStatus!['s2_reminder_active'] == true;
+    final s1Taken = boxStatus!['s1_medicine_taken'] == true;
+    final s2Taken = boxStatus!['s2_medicine_taken'] == true;
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -387,6 +386,14 @@ class _ConnectBoxScreenState extends State<ConnectBoxScreen> {
           _buildStatusRow('Medicine Count', '${boxStatus!['medicine_count'] ?? '-'} / ${boxStatus!['total_compartments'] ?? 2}', isDark),
           _buildStatusRow('Cup 1', boxStatus!['compartment1_present'] == true ? 'Filled' : 'Empty', isDark),
           _buildStatusRow('Cup 2', boxStatus!['compartment2_present'] == true ? 'Filled' : 'Empty', isDark),
+          if (s1Dist is num) _buildStatusRow('Sensor 1 Distance', '${s1Dist.toInt()} mm', isDark),
+          if (s2Dist is num) _buildStatusRow('Sensor 2 Distance', '${s2Dist.toInt()} mm', isDark),
+          const Divider(color: Color(0xFF135F58)),
+          if (temp is num) _buildStatusRow('Temperature', '${temp.toStringAsFixed(1)}\u00B0C', isDark),
+          if (hum is num) _buildStatusRow('Humidity', '${hum.toStringAsFixed(0)}%', isDark),
+          const Divider(color: Color(0xFF135F58)),
+          _buildStatusRow('Cup 1 Reminder', s1Reminder ? 'ACTIVE' : (s1Taken ? 'TAKEN' : 'Waiting'), isDark),
+          _buildStatusRow('Cup 2 Reminder', s2Reminder ? 'ACTIVE' : (s2Taken ? 'TAKEN' : 'Waiting'), isDark),
         ],
       ),
     );

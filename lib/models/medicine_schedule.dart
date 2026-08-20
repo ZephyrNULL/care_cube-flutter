@@ -23,6 +23,22 @@ class MedicineSchedule {
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
+  int get sensorNumber {
+    if (compartment.toLowerCase().contains('cup 1') ||
+        compartment.toLowerCase().contains('sensor 1') ||
+        compartment == '1') return 1;
+    if (compartment.toLowerCase().contains('cup 2') ||
+        compartment.toLowerCase().contains('sensor 2') ||
+        compartment == '2') return 2;
+    if (compartment.toLowerCase().contains('cup 3') ||
+        compartment.toLowerCase().contains('sensor 3') ||
+        compartment == '3') return 3;
+    if (compartment.toLowerCase().contains('cup 4') ||
+        compartment.toLowerCase().contains('sensor 4') ||
+        compartment == '4') return 4;
+    return 1;
+  }
+
   factory MedicineSchedule.fromJson(Map<String, dynamic> json) {
     return MedicineSchedule(
       id: json['id']?.toString() ?? '',

@@ -42,11 +42,33 @@ class NotificationService {
   }
 
   void _listenToMqtt() {
-    MqttService().messageStream.listen((message) {
-      if (message.contains('REMINDER') || message.contains('MEDICINE BOX')) {
-        showInstantNotification('Care Cube Alert', message);
+    final mqttService = MqttService();
+
+    // Listen to raw messages (REMINDER, CONFIRMED, etc.)
+    mqttService.messageStream.listen((message) {
+      if (message.contains('REMINDER')) {
+        showInstantNotification('Medicine Reminder', message);
       } else if (message.contains('CONFIRMED')) {
         showInstantNotification('Dose Confirmed', message);
+      } else if (message.contains('CARE CUBE') || message.contains('SCHEDULE')) {
+        showInstantNotification('Care Cube', message);
+      }
+    });
+
+    // Listen to status updates for temperature/humidity alerts
+    mqttService.statusStream.listen((data) async {
+      final prefs = await SharedPreferences.getInstance();
+      final storageAlertsEnabled = prefs.getBool('storageAlerts') ?? true;
+      if (!storageAlertsEnabled) return;
+
+      final temp = data['temperature'];
+      final hum = data['humidity'];
+
+      if (temp is num && temp > 35) {
+        showInstantNotification('Storage Alert', 'Temperature is high: ${temp.toStringAsFixed(1)}°C. Check medicine storage conditions.');
+      }
+      if (hum is num && hum > 70) {
+        showInstantNotification('Storage Alert', 'Humidity is high: ${hum.toStringAsFixed(0)}%. Check medicine storage conditions.');
       }
     });
   }

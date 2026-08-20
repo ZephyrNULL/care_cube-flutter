@@ -168,4 +168,37 @@ class SupabaseService {
       return null;
     }
   }
+
+  Future<bool> updateProfile(Map<String, dynamic> profileData) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return false;
+
+      await _supabase.from('profiles').upsert({
+        'id': userId,
+        ...profileData,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+      return true;
+    } catch (e) {
+      print('Supabase Profile Update Error: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getProfile() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return null;
+
+      return await _supabase
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
+    } catch (e) {
+      print('Supabase Profile Fetch Error: $e');
+      return null;
+    }
+  }
 }

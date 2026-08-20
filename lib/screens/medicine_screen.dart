@@ -17,7 +17,7 @@ class _MedicineScreenState extends State<MedicineScreen> {
   final SupabaseService _supabaseService = SupabaseService();
   final MqttService _mqttService = MqttService();
   final NotificationService _notificationService = NotificationService();
-  
+
   bool _isConnected = false;
 
   int? _sensor1Distance;
@@ -29,7 +29,10 @@ class _MedicineScreenState extends State<MedicineScreen> {
   bool? _compartment3Present;
   bool? _compartment4Present;
   int _medicineCount = 0;
-  int _totalCompartments = 4;
+  int _totalCompartments = 2;
+
+  double? _temperature;
+  double? _humidity;
 
   late Stream<List<MedicineSchedule>> _schedulesStream;
 
@@ -68,6 +71,8 @@ class _MedicineScreenState extends State<MedicineScreen> {
           _compartment4Present = data['compartment4_present'] is bool ? data['compartment4_present'] as bool : _compartment4Present;
           _medicineCount = data['medicine_count'] is num ? (data['medicine_count'] as num).toInt() : _medicineCount;
           _totalCompartments = data['total_compartments'] is num ? (data['total_compartments'] as num).toInt() : _totalCompartments;
+          _temperature = data['temperature'] is num ? (data['temperature'] as num).toDouble() : _temperature;
+          _humidity = data['humidity'] is num ? (data['humidity'] as num).toDouble() : _humidity;
           _isConnected = true;
         });
       });
@@ -187,12 +192,23 @@ class _MedicineScreenState extends State<MedicineScreen> {
                     onPressed: isSaving ? null : () async {
                       if (nameController.text.isEmpty || dosageController.text.isEmpty) return;
                       setModalState(() => isSaving = true);
-                      final timeStr = selectedTime.format(context);
-                      final schedule = MedicineSchedule(id: '', userId: '', medicineName: nameController.text, compartment: selectedCompartment, scheduledTime: timeStr, dosage: dosageController.text, notes: notesController.text);
+
+                      final schedule = MedicineSchedule(id: '', userId: '', medicineName: nameController.text, compartment: selectedCompartment, scheduledTime: selectedTime.format(context), dosage: dosageController.text, notes: notesController.text);
+
+                      // Sync schedule time to ESP32 via MQTT
+                      if (_isConnected) {
+                        final sensorNum = schedule.sensorNumber;
+                        // Parse the time for 24h format to send to ESP32
+                        final hour24 = selectedTime.hour;
+                        final minute24 = selectedTime.minute;
+                        _mqttService.publishScheduleToBox(sensorNum, hour24, minute24);
+                        // Also send as add_schedule command for logging
+                        _mqttService.publishCommand('add_schedule', schedule.toEsp32Json());
+                      }
+
                       final success = await _supabaseService.addSchedule(schedule);
                       if (success) {
-                        if (_isConnected) _mqttService.publishCommand('add_schedule', schedule.toEsp32Json());
-                        await _notificationService.scheduleMedicineAlarm(DateTime.now().toIso8601String(), schedule.medicineName, timeStr);
+                        await _notificationService.scheduleMedicineAlarm(DateTime.now().toIso8601String(), schedule.medicineName, selectedTime.format(context));
                         if (mounted) Navigator.pop(context);
                       }
                       if (mounted) setModalState(() => isSaving = false);
@@ -268,12 +284,12 @@ class _MedicineScreenState extends State<MedicineScreen> {
                   const SizedBox(height: 24),
                   Text('Your Schedules', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
                   const SizedBox(height: 15),
-                  if (schedules.isEmpty) 
+                  if (schedules.isEmpty)
                     Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('No schedules added yet.', style: TextStyle(color: subTextColor))))
                   else
                     ListView.separated(
-                      shrinkWrap: true, 
-                      physics: const NeverScrollableScrollPhysics(), 
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
                       itemCount: schedules.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) => _buildScheduleCard(schedules[index]),
@@ -354,6 +370,9 @@ class _MedicineScreenState extends State<MedicineScreen> {
   }
 
   Widget _buildEnvironmentCard() {
+    final tempStr = _temperature != null ? _temperature!.toStringAsFixed(1) : '--';
+    final humStr = _humidity != null ? _humidity!.toStringAsFixed(0) : '--';
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF16796F), Color(0xFF2F9C8F)], begin: Alignment.topLeft, end: Alignment.bottomRight), borderRadius: BorderRadius.circular(22), boxShadow: [BoxShadow(color: const Color(0xFF16796F).withOpacity(0.22), blurRadius: 16, offset: const Offset(0, 7))]),
@@ -361,7 +380,20 @@ class _MedicineScreenState extends State<MedicineScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(children: [Icon(Icons.medication_rounded, color: Colors.white), SizedBox(width: 8), Text('Live Compartment Status', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Colors.white))]),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
+          // Temperature and Humidity
+          Row(
+            children: [
+              Icon(Icons.thermostat_rounded, size: 18, color: Colors.white.withOpacity(0.9)),
+              const SizedBox(width: 6),
+              Text('$tempStr°C', style: TextStyle(fontSize: 15, color: Colors.white.withOpacity(0.9))),
+              const SizedBox(width: 20),
+              Icon(Icons.water_drop_rounded, size: 18, color: Colors.white.withOpacity(0.9)),
+              const SizedBox(width: 6),
+              Text('$humStr%', style: TextStyle(fontSize: 15, color: Colors.white.withOpacity(0.9))),
+            ],
+          ),
+          const SizedBox(height: 16),
           Row(children: [
             Expanded(child: _buildCompartmentItem(compartment: 'Cup 1', present: _compartment1Present, distance: _sensor1Distance)),
             Container(width: 1, height: 72, color: Colors.white.withOpacity(0.35)),
@@ -423,12 +455,17 @@ class _MedicineScreenState extends State<MedicineScreen> {
       if (_compartment4Present != null) 'Cup 4: ${_compartment4Present! ? 'Filled' : 'Empty'}',
     ].join(' · ');
 
+    final tempStr = _temperature != null ? '${_temperature!.toStringAsFixed(1)}°C' : '--';
+    final humStr = _humidity != null ? '${_humidity!.toStringAsFixed(0)}%' : '--';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Care Cube Status', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: textColor)),
         const SizedBox(height: 14),
         _buildStatusCard(icon: _isConnected ? Icons.check_circle_rounded : Icons.cancel_rounded, title: 'Medicine Status', description: _isConnected ? '$_medicineCount of $_totalCompartments compartments filled.' : 'Box not connected.', iconColour: _isConnected ? const Color(0xFF16796F) : const Color(0xFFB33A3A), backgroundColour: _isConnected ? (isDark ? const Color(0xFF1A2E2A) : const Color(0xFFE6F6F1)) : (isDark ? const Color(0xFF2E1A1A) : const Color(0xFFFFE4E4))),
+        const SizedBox(height: 12),
+        _buildStatusCard(icon: Icons.thermostat_rounded, title: 'Environment', description: 'Temp: $tempStr · Humidity: $humStr', iconColour: const Color(0xFF2563A6), backgroundColour: isDark ? const Color(0xFF1A212E) : const Color(0xFFEAF3FF)),
         const SizedBox(height: 12),
         _buildStatusCard(icon: Icons.inventory_2_rounded, title: 'Compartments', description: compartmentsSummary.isNotEmpty ? compartmentsSummary : 'Waiting for box data...', iconColour: const Color(0xFF7B5B15), backgroundColour: isDark ? const Color(0xFF2E2A1A) : const Color(0xFFFFF6DD)),
       ],
@@ -437,13 +474,13 @@ class _MedicineScreenState extends State<MedicineScreen> {
 
   Widget _buildStatusCard({required IconData icon, required String title, required String description, required Color iconColour, required Color backgroundColour}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: backgroundColour, borderRadius: BorderRadius.circular(17)), child: Row(children: [Container(width: 46, height: 46, decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.white.withOpacity(0.75), borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: iconColour, size: 27)), const SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1C2C39))), const SizedBox(height: 3), Text(description, style: TextStyle(fontSize: 13, height: 1.35, color: isDark ? Colors.white70 : const Color(0xFF596873)))])),]));
+    return Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: backgroundColour, borderRadius: BorderRadius.circular(17)), child: Row(children: [Container(width: 46, height: 46, decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.white.withOpacity(0.75), borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: iconColour, size: 27)), const SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1C2C39))), const SizedBox(height: 3), Text(description, style: TextStyle(fontSize: 13, height: 1.35, color: isDark ? Colors.white70 : const Color(0xFF596873)))]))]));
   }
 
   Widget _buildTextField({required TextEditingController controller, required String label, required String hint, required IconData icon}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : const Color(0xFF1C2C39);
-    
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)), const SizedBox(height: 8), TextField(controller: controller, style: TextStyle(color: textColor), decoration: InputDecoration(hintText: hint, hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey), prefixIcon: Icon(icon, size: 22, color: isDark ? Colors.white70 : null), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF16796F))), filled: true, fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50))]);
   }
 }

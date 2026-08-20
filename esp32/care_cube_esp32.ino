@@ -2,43 +2,33 @@
  * Care Cube - Smart Medicine Box (ESP32)
  * ==========================================================
  *  2x VL53L0X Time-of-Flight sensors   -> medicine presence/count
- *  16x2 I2C LCD display
- *  MQTT over HiveMQ public broker      -> live status to Flutter app
+ *  RTC DS3231                           -> scheduled medicine times
+ *  DHT22                                -> temperature & humidity
+ *  16x4 I2C LCD display                 -> status screens
+ *  Buzzer + 2 LEDs                      -> audio/visual reminders
+ *  MQTT over HiveMQ public broker       -> live status to Flutter app
  *
  * REQUIRED LIBRARIES (Arduino IDE -> Library Manager):
  *   - Adafruit VL53L0X
  *   - LiquidCrystal I2C (Frank de Brabander)
  *   - PubSubClient (Nick O'Leary)
+ *   - RTClib (Adafruit)
+ *   - DHT sensor library (Adafruit)
+ *   - ArduinoJson
  *
  * HOW IT WORKS:
- *   - The box reads distance from 2 sensors. When an object is closer
- *     than MEDICINE_THRESHOLD_MM (70mm), that compartment counts as
- *     "filled". medicine_count = number of filled compartments.
- *   - Publishes JSON status to HiveMQ topic:
+ *   - Reads time from RTC, temperature/humidity from DHT22,
+ *     distance from 2 VL53L0X sensors.
+ *   - At scheduled medicine times, activates buzzer + LED reminder
+ *     and shows "PLEASE TAKE" on LCD.
+ *   - When medicine is removed (distance > threshold), confirms
+ *     dose taken, shows "TAKEN" on LCD for 2 minutes.
+ *   - Publishes rich JSON status to HiveMQ MQTT broker:
  *         care_cube/<BOX_ID>/status
- *       Status payload:
- *         {
- *           "box_id": "CARE-1234",
- *           "sensor1_distance": 55,
- *           "sensor2_distance": 120,
- *           "compartment1_present": true,
- *           "compartment2_present": false,
- *           "medicine_count": 1,
- *           "total_compartments": 2,
- *           "dose_taken": "Cup 1"   <-- only sent once when medicine is removed
- *         }
- *   - When medicine is removed from a compartment (sensor goes
- *     present -> absent), the box publishes a one-time "dose_taken"
- *     field ("Cup 1" / "Cup 2"). The app marks that dose as taken.
- *   - Listens for commands (open / dose_taken / add_schedule) on:
+ *   - Publishes alerts to:
+ *         medicinebox/notifications
+ *   - Receives schedule commands from app via:
  *         care_cube/<BOX_ID>/commands
- *       add_schedule payload from the app:
- *         {"command":"add_schedule","data":{
- *           "compartment":"Cup 1",
- *           "scheduled_time":"8:30 PM",
- *           "medicine_name":"Paracetamol",
- *           "dosage":"1 Tablet",
- *           "active":true},...}
  *   - Wi-Fi: enter credentials below, or use the app's Setup Wizard.
  *     If the box cannot connect it starts an access point
  *     "CareCube_Setup" (http://192.168.4.1/setup) to receive Wi-Fi.
@@ -46,53 +36,124 @@
  */
 
 #include <Wire.h>
+#include <RTClib.h>
 #include <LiquidCrystal_I2C.h>
+#include <DHT.h>
 #include <VL53L0X.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <PubSubClient.h>
 #include <Preferences.h>
+#include <ArduinoJson.h>
 
-// ----------------------- CONFIGURATION ------------------------
-// Your home Wi-Fi credentials (can also be set via the app Setup Wizard)
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+// =====================================================
+// CONFIGURATION - UPDATE THESE
+// =====================================================
 
-// Care Cube Box ID - MUST match the Box ID entered in the app
-const char* box_id = "CARE-1234";
+const char* WIFI_SSID_DEFAULT = "YOUR_WIFI_SSID";
+const char* WIFI_PASS_DEFAULT  = "YOUR_WIFI_PASSWORD";
 
-// HiveMQ public MQTT broker
-const char* mqtt_server = "broker.hivemq.com";
-const int   mqtt_port   = 1883;
+const char* BOX_ID     = "CARE-1234";
+const char* MQTT_SERVER = "broker.hivemq.com";
+const int   MQTT_PORT   = 1883;
 
-// Compartment counts as "filled" when an object is closer than this (mm)
-const int MEDICINE_THRESHOLD_MM = 70;
+// =====================================================
+// I2C PINS
+// =====================================================
 
-// Publish interval for live status (ms)
-const unsigned long PUBLISH_INTERVAL = 3000;
-// --------------------------------------------------------------
+#define SDA_PIN 21
+#define SCL_PIN 22
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// =====================================================
+// HARDWARE PINS
+// =====================================================
 
+#define DHTPIN 4
+#define DHTTYPE DHT22
+#define BUZZER 25
+#define LED1 26
+#define LED2 27
+#define XSHUT1 18
+#define XSHUT2 19
+
+// =====================================================
+// SENSORS & PERIPHERALS
+// =====================================================
+
+RTC_DS3231 rtc;
+LiquidCrystal_I2C lcd(0x27, 16, 4);
+DHT dht(DHTPIN, DHTTYPE);
 VL53L0X sensor1;
 VL53L0X sensor2;
 
-#define XSHUT1 18
-#define XSHUT2 19
+// =====================================================
+// NETWORK
+// =====================================================
 
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
 WebServer setupServer(80);
 Preferences prefs;
 
-unsigned long lastPublish = 0;
+// =====================================================
+// MEDICINE SETTINGS (default - overridden by app via MQTT)
+// =====================================================
+
+int s1Hour = 8;
+int s1Minute = 0;
+int s2Hour = 20;
+int s2Minute = 0;
+
+const int DISTANCE_LIMIT = 70;
+const unsigned long MEDICINE_DISPLAY_TIME = 2UL * 60UL * 1000UL;
+
+// =====================================================
+// STATE FLAGS
+// =====================================================
+
+bool s1ReminderDone   = false;
+bool s2ReminderDone   = false;
+bool s1ReminderActive = false;
+bool s2ReminderActive = false;
+bool s1MedicineTaken  = false;
+bool s2MedicineTaken  = false;
+int  activeSensor     = 0;
+bool medicineTakenDisplay = false;
+unsigned long medicineTakenStartTime = 0;
+
+// =====================================================
+// TIMING
+// =====================================================
+
+unsigned long lastStatusPublish = 0;
+unsigned long lastMqttReconnect = 0;
+unsigned long lastScheduleCheck = 0;
 bool setupMode = false;
 
-// Previous presence state used to detect when medicine is removed
+// Previous presence state for dose_taken detection
 bool prevPresent1 = false;
 bool prevPresent2 = false;
 
-// Extract a string value for `key` from a JSON string (no library needed)
+// =====================================================
+// TOPIC HELPERS
+// =====================================================
+
+String statusTopic() {
+  return String("care_cube/") + String(BOX_ID) + "/status";
+}
+
+String commandTopic() {
+  return String("care_cube/") + String(BOX_ID) + "/commands";
+}
+
+String alertTopic() {
+  return String("medicinebox/notifications");
+}
+
+// =====================================================
+// JSON HELPER (lightweight parser for command values)
+// =====================================================
+
 String getJsonValue(String json, String key) {
   String search = String("\"") + key + "\"";
   int pos = json.indexOf(search);
@@ -111,29 +172,143 @@ String getJsonValue(String json, String key) {
   return value;
 }
 
-// Smooth distance reading (average of 5 samples). -1 on timeout.
+// =====================================================
+// GET AVERAGE DISTANCE
+// =====================================================
+
 int getDistance(VL53L0X &sensor) {
   long total = 0;
-  int valid = 0;
+  int validReadings = 0;
   for (int i = 0; i < 5; i++) {
-    uint16_t dist = sensor.readRangeContinuousMillimeters();
+    int distance = sensor.readRangeContinuousMillimeters();
     if (!sensor.timeoutOccurred()) {
-      total += dist;
-      valid++;
+      total += distance;
+      validReadings++;
     }
-    delay(50);
+    delay(20);
   }
-  return valid == 0 ? -1 : (int)(total / valid);
+  return (validReadings == 0) ? 9999 : total / validReadings;
 }
 
-void printLcd(String line1, String line2) {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(line1);
-  lcd.setCursor(0, 1);
-  lcd.print(line2);
-  delay(1500);
+// =====================================================
+// MQTT CONNECT
+// =====================================================
+
+bool mqttConnect() {
+  if (mqtt.connected()) return true;
+  String clientId = String("care_cube_") + String(BOX_ID) + "_" +
+                    String((uint32_t)ESP.getEfuseMac(), HEX);
+  Serial.print("MQTT connecting... ");
+  if (mqtt.connect(clientId.c_str())) {
+    Serial.println("connected");
+    mqtt.subscribe(commandTopic().c_str());
+    return true;
+  }
+  Serial.print("failed, rc=");
+  Serial.println(mqtt.state());
+  return false;
 }
+
+// =====================================================
+// MQTT PUBLISH: STATUS (rich JSON)
+// =====================================================
+
+void publishStatus(float temp, float hum, int d1, int d2,
+                    bool p1, bool p2, int count,
+                    String doseTaken, String reminderActive) {
+  StaticJsonDocument<512> doc;
+  doc["box_id"] = BOX_ID;
+  doc["temperature"] = isnan(temp) ? 0 : temp;
+  doc["humidity"] = isnan(hum) ? 0 : hum;
+  doc["sensor1_distance"] = d1;
+  doc["sensor2_distance"] = d2;
+  doc["compartment1_present"] = p1;
+  doc["compartment2_present"] = p2;
+  doc["medicine_count"] = count;
+  doc["total_compartments"] = 2;
+  doc["s1_medicine_taken"] = s1MedicineTaken;
+  doc["s2_medicine_taken"] = s2MedicineTaken;
+
+  if (doseTaken.length() > 0) {
+    doc["dose_taken"] = doseTaken;
+  }
+  if (reminderActive.length() > 0) {
+    doc["reminder_active"] = reminderActive;
+  }
+
+  char buffer[512];
+  serializeJson(doc, buffer);
+  mqtt.publish(statusTopic().c_str(), buffer);
+  Serial.print("Published status: ");
+  Serial.println(buffer);
+}
+
+// =====================================================
+// MQTT PUBLISH: ALERT
+// =====================================================
+
+void publishAlert(const char* message) {
+  mqtt.publish(alertTopic().c_str(), message);
+  Serial.print("Alert: ");
+  Serial.println(message);
+}
+
+// =====================================================
+// MQTT COMMAND HANDLER
+// =====================================================
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (unsigned int i = 0; i < length; i++) message += (char)payload[i];
+
+  Serial.print("Command received: ");
+  Serial.println(message);
+
+  String command = getJsonValue(message, "command");
+
+  if (command == "set_schedule") {
+    // App sends: {"command":"set_schedule","sensor":1,"hour":8,"minute":30}
+    int sensor = getJsonValue(message, "sensor").toInt();
+    int hour = getJsonValue(message, "hour").toInt();
+    int minute = getJsonValue(message, "minute").toInt();
+
+    if (sensor == 1) {
+      s1Hour = hour;
+      s1Minute = minute;
+      s1ReminderDone = false;
+      Serial.println("S1 schedule set to " + String(hour) + ":" + String(minute < 10 ? "0" : "") + String(minute));
+    } else if (sensor == 2) {
+      s2Hour = hour;
+      s2Minute = minute;
+      s2ReminderDone = false;
+      Serial.println("S2 schedule set to " + String(hour) + ":" + String(minute < 10 ? "0" : "") + String(minute));
+    }
+  } else if (command == "open") {
+    String compartment = getJsonValue(message, "compartment");
+    Serial.println("Opening compartment: " + compartment);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("OPENING");
+    lcd.setCursor(0, 1);
+    lcd.print(compartment);
+  } else if (command == "dose_taken") {
+    String compartment = getJsonValue(message, "compartment");
+    Serial.println("Dose marked as taken: " + compartment);
+  } else if (command == "add_schedule") {
+    String medicine = getJsonValue(message, "medicine_name");
+    String time = getJsonValue(message, "scheduled_time");
+    Serial.println("New schedule: " + medicine + " at " + time);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("SCHEDULE ADDED");
+    lcd.setCursor(0, 1);
+    lcd.print(medicine.length() > 16 ? medicine.substring(0, 16) : medicine);
+  }
+}
+
+// =====================================================
+// WIFI CONNECTION
+// =====================================================
 
 bool connectWiFi(String ssid, String pass) {
   if (ssid.isEmpty() || ssid == "YOUR_WIFI_SSID" || ssid == "your_wifi_ssid") {
@@ -160,6 +335,10 @@ bool connectWiFi(String ssid, String pass) {
   return false;
 }
 
+// =====================================================
+// SETUP MODE (AP for WiFi provisioning)
+// =====================================================
+
 void startSetupMode() {
   setupMode = true;
   Serial.println("Starting setup access point 'CareCube_Setup'");
@@ -179,9 +358,10 @@ void startSetupMode() {
 
     prefs.putString("ssid", ssid);
     prefs.putString("pass", pass);
-    prefs.end();
 
-    printLcd("SAVING WIFI...", "");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("SAVING WIFI...");
 
     if (connectWiFi(ssid, pass)) {
       Serial.println("Wi-Fi configured. Rebooting...");
@@ -204,190 +384,397 @@ void startSetupMode() {
   lcd.print("CONNECT TO WIFI");
 }
 
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  String message;
-  for (unsigned int i = 0; i < length; i++) message += (char)payload[i];
+// =====================================================
+// LCD SCREENS
+// =====================================================
 
-  Serial.print("Command received: ");
-  Serial.println(message);
+void showNormalScreen(DateTime now, float temp, float hum) {
+  lcd.clear();
 
-  String command = getJsonValue(message, "command");
-  String compartment = getJsonValue(message, "compartment");
+  // LINE 1 - TIME
+  lcd.setCursor(0, 0);
+  lcd.print("Time: ");
+  if (now.hour() < 10) lcd.print("0");
+  lcd.print(now.hour());
+  lcd.print(":");
+  if (now.minute() < 10) lcd.print("0");
+  lcd.print(now.minute());
+  lcd.print(":");
+  if (now.second() < 10) lcd.print("0");
+  lcd.print(now.second());
 
-  if (command == "open") {
-    Serial.println("Opening compartment: " + compartment);
-    printLcd("OPENING", compartment);
-    // TODO: Add GPIO/servo logic here to physically open the compartment
-  } else if (command == "dose_taken") {
-    Serial.println("Dose marked as taken: " + compartment);
-  } else if (command == "add_schedule") {
-    String medicine = getJsonValue(message, "medicine_name");
-    String time = getJsonValue(message, "scheduled_time");
-    Serial.println("New schedule added: " + medicine + " at " + time);
-    printLcd("SCHEDULE ADDED", medicine.length() > 16 ? medicine.substring(0, 16) : medicine);
+  // LINE 2 - DATE
+  lcd.setCursor(0, 1);
+  lcd.print("Date: ");
+  if (now.day() < 10) lcd.print("0");
+  lcd.print(now.day());
+  lcd.print("/");
+  if (now.month() < 10) lcd.print("0");
+  lcd.print(now.month());
+  lcd.print("/");
+  lcd.print(now.year() % 100);
+
+  // LINE 3 - TEMP + HUM
+  lcd.setCursor(0, 2);
+  lcd.print("Tmp:");
+  if (!isnan(temp)) {
+    lcd.print(temp, 1);
+    lcd.print((char)223);
+    lcd.print("C");
   } else {
-    Serial.println("Unknown command: " + command);
+    lcd.print("ERR");
+  }
+  lcd.print(" Hum:");
+  if (!isnan(hum)) {
+    lcd.print(hum, 1);
+    lcd.print("%");
+  } else {
+    lcd.print("ERR");
+  }
+
+  // LINE 4 - STATUS
+  lcd.setCursor(0, 3);
+  if (s1MedicineTaken || s2MedicineTaken) {
+    lcd.print("MEDICINE TAKEN");
+  } else {
+    lcd.print(BOX_ID);
   }
 }
 
-void reconnectMqtt() {
-  while (!mqtt.connected()) {
-    Serial.print("Connecting to MQTT broker...");
-    String clientId = String("care_cube_") + String(box_id) + "_" +
-                      String((uint32_t)ESP.getEfuseMac(), HEX);
-    if (mqtt.connect(clientId.c_str())) {
-      Serial.println(" connected!");
-      mqtt.subscribe((String("care_cube/") + String(box_id) + "/commands").c_str());
-      lastPublish = 0;
-    } else {
-      Serial.print(" failed, state=");
-      Serial.print(mqtt.state());
-      Serial.println(" retrying in 5s");
-      delay(5000);
-    }
-  }
-}
-
-void publishStatus(int d1, int d2, bool p1, bool p2, int count, String doseTaken) {
-  String payload = String("{") +
-                   "\"box_id\":\"" + String(box_id) + "\"," +
-                   "\"sensor1_distance\":" + String(d1) + "," +
-                   "\"sensor2_distance\":" + String(d2) + "," +
-                   "\"compartment1_present\":" + String(p1 ? "true" : "false") + "," +
-                   "\"compartment2_present\":" + String(p2 ? "true" : "false") + ",";
-
-  // One-time field sent when medicine is removed from a compartment
-  if (doseTaken.length() > 0) {
-    payload += "\"dose_taken\":\"" + doseTaken + "\",";
-  }
-
-  payload += "\"medicine_count\":" + String(count) + "," +
-             "\"total_compartments\":2" +
-             "}";
-
-  String topic = String("care_cube/") + String(box_id) + "/status";
-  mqtt.publish(topic.c_str(), payload.c_str());
-  Serial.print("Published: ");
-  Serial.println(payload);
-}
-
-void updateLcd(bool p1, bool p2) {
+void showMedicineScreen(int sensorNumber, int distance) {
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  if (p1) {
-    lcd.print("S1 TAKE MEDICINE");
-    Serial.println("S1 TAKE MEDICINE");
-  } else {
-    lcd.print("S1 MEDICINE TAKEN");
-    Serial.println("S1 MEDICINE TAKEN");
-  }
+  lcd.print("----------------");
 
   lcd.setCursor(0, 1);
-  if (p2) {
-    lcd.print("S2 TAKE MEDICINE");
-    Serial.println("S2 TAKE MEDICINE");
+  if (distance <= DISTANCE_LIMIT) {
+    lcd.print("S");
+    lcd.print(sensorNumber);
+    lcd.print(": TAKE MEDICINE");
   } else {
-    lcd.print("S2 MEDICINE TAKEN");
-    Serial.println("S2 MEDICINE TAKEN");
+    lcd.print("S");
+    lcd.print(sensorNumber);
+    lcd.print(": MEDICINE");
+  }
+
+  lcd.setCursor(0, 2);
+  lcd.print("----------------");
+
+  lcd.setCursor(0, 3);
+  if (distance > DISTANCE_LIMIT) {
+    lcd.print("TAKEN");
+  } else {
+    lcd.print("PLEASE TAKE");
   }
 }
+
+void showMedicineTakenScreen(int sensorNumber) {
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("----------------");
+
+  lcd.setCursor(0, 1);
+  lcd.print("S");
+  lcd.print(sensorNumber);
+  lcd.print(": MEDICINE");
+
+  lcd.setCursor(0, 2);
+  lcd.print("TAKEN");
+
+  lcd.setCursor(0, 3);
+  lcd.print("----------------");
+}
+
+// =====================================================
+// SETUP
+// =====================================================
 
 void setup() {
   Serial.begin(115200);
   Serial.println();
   Serial.println("Care Cube starting...");
 
-  Wire.begin(21, 22);
+  Wire.begin(SDA_PIN, SCL_PIN);
 
-  lcd.begin(16, 2);
+  // LCD
+  lcd.init();
   lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("MEDICINE BOX");
+  lcd.setCursor(0, 1);
+  lcd.print("Starting...");
 
+  // DHT22
+  dht.begin();
+
+  // Buzzer
+  pinMode(BUZZER, OUTPUT);
+  digitalWrite(BUZZER, LOW);
+
+  // LEDs
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  digitalWrite(LED1, LOW);
+  digitalWrite(LED2, LOW);
+
+  // RTC
+  if (!rtc.begin()) {
+    lcd.clear();
+    lcd.print("RTC ERROR");
+    Serial.println("RTC ERROR");
+    while (1);
+  }
+  // Uncomment ONLY ONCE if RTC time needs setting:
+  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+
+  // VL53L0X XSHUT
   pinMode(XSHUT1, OUTPUT);
   pinMode(XSHUT2, OUTPUT);
-
-  // Turn OFF both sensors
   digitalWrite(XSHUT1, LOW);
   digitalWrite(XSHUT2, LOW);
   delay(100);
 
-  // Start Sensor 1
+  // Sensor 1
   digitalWrite(XSHUT1, HIGH);
   delay(100);
   sensor1.setTimeout(500);
   if (!sensor1.init()) {
-    Serial.println("Sensor 1 Failed");
     lcd.clear();
-    lcd.print("Sensor 1 Fail");
+    lcd.print("S1 SENSOR FAIL");
+    Serial.println("Sensor 1 Failed");
     while (1);
   }
   sensor1.setAddress(0x30);
   sensor1.startContinuous();
 
-  // Start Sensor 2
+  // Sensor 2
   digitalWrite(XSHUT2, HIGH);
   delay(100);
   sensor2.setTimeout(500);
   if (!sensor2.init()) {
-    Serial.println("Sensor 2 Failed");
     lcd.clear();
-    lcd.print("Sensor 2 Fail");
+    lcd.print("S2 SENSOR FAIL");
+    Serial.println("Sensor 2 Failed");
     while (1);
   }
   sensor2.setAddress(0x31);
   sensor2.startContinuous();
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("MEDICINE BOX");
-  delay(1500);
-
+  // Preferences
   prefs.begin("carecube", false);
-  String ssid = prefs.getString("ssid", String(WIFI_SSID));
-  String pass = prefs.getString("pass", String(WIFI_PASS));
+  String ssid = prefs.getString("ssid", String(WIFI_SSID_DEFAULT));
+  String pass = prefs.getString("pass", String(WIFI_PASS_DEFAULT));
 
+  // Connect WiFi or start setup AP
   if (connectWiFi(ssid, pass)) {
-    mqtt.setServer(mqtt_server, mqtt_port);
+    mqtt.setServer(MQTT_SERVER, MQTT_PORT);
     mqtt.setCallback(mqttCallback);
-    reconnectMqtt();
+    mqttConnect();
+    publishAlert("CARE CUBE: Online");
   } else {
     startSetupMode();
   }
+
+  // Ready
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("MEDICINE BOX");
+  lcd.setCursor(0, 1);
+  lcd.print("SYSTEM READY");
+  delay(2000);
+  lcd.clear();
 }
 
+// =====================================================
+// LOOP
+// =====================================================
+
 void loop() {
+  // Handle WiFi connected mode
   if (WiFi.status() == WL_CONNECTED) {
     if (setupMode) {
       setupMode = false;
       WiFi.mode(WIFI_STA);
     }
 
-    if (!mqtt.connected()) reconnectMqtt();
+    // MQTT
+    if (!mqtt.connected()) {
+      if (millis() - lastMqttReconnect > 5000) {
+        lastMqttReconnect = millis();
+        mqttConnect();
+      }
+    }
     mqtt.loop();
 
-    int distance1 = getDistance(sensor1);
-    int distance2 = getDistance(sensor2);
+    // GET SENSORS
+    DateTime now = rtc.now();
+    float temp = dht.readTemperature();
+    float hum  = dht.readHumidity();
+    int d1 = getDistance(sensor1);
+    int d2 = getDistance(sensor2);
+    bool p1 = d1 >= 0 && d1 <= DISTANCE_LIMIT;
+    bool p2 = d2 >= 0 && d2 <= DISTANCE_LIMIT;
+    int medicineCount = (p1 ? 1 : 0) + (p2 ? 1 : 0);
 
-    bool present1 = distance1 >= 0 && distance1 <= MEDICINE_THRESHOLD_MM;
-    bool present2 = distance2 >= 0 && distance2 <= MEDICINE_THRESHOLD_MM;
-    int medicineCount = (present1 ? 1 : 0) + (present2 ? 1 : 0);
-
-    // Detect when medicine is removed: present -> absent
+    // Detect dose_taken: present -> absent
     String doseTaken = "";
-    if (prevPresent1 && !present1) doseTaken = "Cup 1";
-    if (prevPresent2 && !present2) doseTaken = (doseTaken.length() > 0 ? doseTaken : "Cup 2");
-    prevPresent1 = present1;
-    prevPresent2 = present2;
+    if (prevPresent1 && !p1) doseTaken = "Cup 1";
+    if (prevPresent2 && !p2) {
+      if (doseTaken.length() > 0) doseTaken = "Cup 1&Cup 2";
+      else doseTaken = "Cup 2";
+    }
+    prevPresent1 = p1;
+    prevPresent2 = p2;
 
-    unsigned long now = millis();
-    if (now - lastPublish >= PUBLISH_INTERVAL) {
-      lastPublish = now;
-      publishStatus(distance1, distance2, present1, present2, medicineCount, doseTaken);
+    // Determine reminder active string
+    String reminderActive = "";
+    if (s1ReminderActive) reminderActive = "S1";
+    else if (s2ReminderActive) reminderActive = "S2";
+
+    // Periodic status publish (every 5 seconds)
+    if (millis() - lastStatusPublish > 5000) {
+      lastStatusPublish = millis();
+      publishStatus(temp, hum, d1, d2, p1, p2, medicineCount,
+                    doseTaken, reminderActive);
     }
 
-    updateLcd(present1, present2);
-    delay(50);
+    // ===================================================
+    // MEDICINE TAKEN DISPLAY (2 minutes)
+    // ===================================================
+
+    if (medicineTakenDisplay) {
+      showMedicineTakenScreen(activeSensor);
+      if (millis() - medicineTakenStartTime >= MEDICINE_DISPLAY_TIME) {
+        medicineTakenDisplay = false;
+        activeSensor = 0;
+        lcd.clear();
+      }
+    }
+
+    // ===================================================
+    // S1 REMINDER TRIGGER
+    // ===================================================
+
+    else if (now.hour() == s1Hour && now.minute() == s1Minute &&
+             !s1ReminderDone && !s1ReminderActive && !s2ReminderActive) {
+      s1ReminderActive = true;
+      activeSensor = 1;
+      s1MedicineTaken = false;
+
+      digitalWrite(BUZZER, HIGH);
+      digitalWrite(LED1, HIGH);
+      digitalWrite(LED2, LOW);
+
+      publishAlert("REMINDER: Take Cup 1 medicine NOW!");
+      Serial.println("S1 REMINDER STARTED");
+    }
+
+    // ===================================================
+    // S2 REMINDER TRIGGER
+    // ===================================================
+
+    else if (now.hour() == s2Hour && now.minute() == s2Minute &&
+             !s2ReminderDone && !s2ReminderActive && !s1ReminderActive) {
+      s2ReminderActive = true;
+      activeSensor = 2;
+      s2MedicineTaken = false;
+
+      digitalWrite(BUZZER, HIGH);
+      digitalWrite(LED2, HIGH);
+      digitalWrite(LED1, LOW);
+
+      publishAlert("REMINDER: Take Cup 2 medicine NOW!");
+      Serial.println("S2 REMINDER STARTED");
+    }
+
+    // ===================================================
+    // S1 REMINDER ACTIVE - CHECK SENSOR
+    // ===================================================
+
+    else if (s1ReminderActive) {
+      showMedicineScreen(1, d1);
+
+      if (d1 > DISTANCE_LIMIT || (!p1 && d1 != 9999)) {
+        // Medicine taken
+        s1ReminderActive = false;
+        s1ReminderDone = true;
+        s1MedicineTaken = true;
+
+        digitalWrite(BUZZER, LOW);
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, LOW);
+
+        medicineTakenDisplay = true;
+        activeSensor = 1;
+        medicineTakenStartTime = millis();
+
+        publishAlert("CONFIRMED: Cup 1 medicine TAKEN");
+        Serial.println("S1: MEDICINE TAKEN");
+      } else {
+        // Keep reminder active
+        digitalWrite(BUZZER, HIGH);
+        digitalWrite(LED1, HIGH);
+        digitalWrite(LED2, LOW);
+      }
+    }
+
+    // ===================================================
+    // S2 REMINDER ACTIVE - CHECK SENSOR
+    // ===================================================
+
+    else if (s2ReminderActive) {
+      showMedicineScreen(2, d2);
+
+      if (d2 > DISTANCE_LIMIT || (!p2 && d2 != 9999)) {
+        // Medicine taken
+        s2ReminderActive = false;
+        s2ReminderDone = true;
+        s2MedicineTaken = true;
+
+        digitalWrite(BUZZER, LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED1, LOW);
+
+        medicineTakenDisplay = true;
+        activeSensor = 2;
+        medicineTakenStartTime = millis();
+
+        publishAlert("CONFIRMED: Cup 2 medicine TAKEN");
+        Serial.println("S2: MEDICINE TAKEN");
+      } else {
+        // Keep reminder active
+        digitalWrite(BUZZER, HIGH);
+        digitalWrite(LED2, HIGH);
+        digitalWrite(LED1, LOW);
+      }
+    }
+
+    // ===================================================
+    // NORMAL SCREEN
+    // ===================================================
+
+    else {
+      showNormalScreen(now, temp, hum);
+      digitalWrite(LED1, LOW);
+      digitalWrite(LED2, LOW);
+    }
+
+    // ===================================================
+    // RESET EVERY DAY (00:01)
+    // ===================================================
+
+    if (now.hour() == 0 && now.minute() == 1) {
+      s1ReminderDone = false;
+      s2ReminderDone = false;
+    }
+
+    delay(500);
+
   } else {
+    // WiFi not connected - setup mode
     if (!setupMode) startSetupMode();
     setupServer.handleClient();
     delay(10);

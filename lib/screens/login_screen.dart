@@ -102,9 +102,16 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on AuthException catch (e) {
       if (!mounted) return;
+      
+      String displayMessage = e.message;
+      // Handle "User already registered" error from Supabase
+      if (e.message.toLowerCase().contains("already registered")) {
+        displayMessage = "You have already registered in the system. Please sign in.";
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.message),
+          content: Text(displayMessage),
           backgroundColor: Colors.red,
         ),
       );
