@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2024-05-20
+[![Version](https://img.shields.io/badge/Version-v2.2.0-blue)](https://github.com/ZephyrNULL/care_cube-flutter)
+[![Build](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/ZephyrNULL/care_cube-flutter)
+
+### Added
+- **Insistent Alarms**: Notifications now ring continuously until manually stopped.
+- **Stop Alarm Button**: Added a dedicated "Stop Alarm" action button directly in the notification.
+- **Heads-up Notifications**: Reminders now appear as popup alerts (High Importance) for better visibility.
+- **Improved Deletion Logic**: Deleting a medicine schedule now correctly cancels its associated pending and active notifications.
+
+### Fixed
+- Fixed a bug where notifications persisted after the corresponding medicine was deleted.
+- Ensured unique notification IDs are tracked correctly between the database and the device.
+
 ## [2.1.0] - 2024-05-20
 [![Version](https://img.shields.io/badge/Version-v2.1.0-blue)](https://github.com/ZephyrNULL/care_cube-flutter)
 [![Build](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/ZephyrNULL/care_cube-flutter)
@@ -18,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - Improved loading state handling during cloud data retrieval.
 
 ## [2.0.0] - 2024-05-20
+[![Version](https://img.shields.io/badge/Version-v2.0.0-blue)](https://github.com/ZephyrNULL/care_cube-flutter)
 
 ### Added
 - **Expanded Hardware Support**: Increased compartment monitoring from 2 to 4 cups.

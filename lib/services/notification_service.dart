@@ -26,7 +26,17 @@ class NotificationService {
       android: initializationSettingsAndroid,
     );
 
-    await _notificationsPlugin.initialize(initializationSettings);
+    await _notificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) async {
+        if (response.actionId == 'stop_alarm') {
+          // Stop the notification sound by canceling it
+          if (response.id != null) {
+            await _notificationsPlugin.cancel(response.id!);
+          }
+        }
+      },
+    );
 
     if (Platform.isAndroid) {
       final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
@@ -175,6 +185,15 @@ class NotificationService {
         fullScreenIntent: true,
         category: AndroidNotificationCategory.alarm,
         audioAttributesUsage: AudioAttributesUsage.alarm,
+        insistent: true,
+        actions: <AndroidNotificationAction>[
+          const AndroidNotificationAction(
+            'stop_alarm',
+            'Stop Alarm',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+        ],
       );
     } else {
       androidDetails = AndroidNotificationDetails(
@@ -187,6 +206,15 @@ class NotificationService {
         enableVibration: vibrationEnabled,
         category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
         fullScreenIntent: true,
+        insistent: true,
+        actions: <AndroidNotificationAction>[
+          const AndroidNotificationAction(
+            'stop_alarm',
+            'Stop Alarm',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+        ],
       );
     }
 

@@ -81,10 +81,10 @@ class SupabaseService {
     }
   }
 
-  Future<bool> addSchedule(MedicineSchedule schedule) async {
+  Future<String?> addSchedule(MedicineSchedule schedule) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return false;
+      if (userId == null) return null;
 
       final Map<String, dynamic> data = {
         'user_id': userId,
@@ -98,13 +98,13 @@ class SupabaseService {
       };
 
       print('Supabase Add: Inserting $data');
-      await _supabase.from('schedules').insert(data);
+      final response = await _supabase.from('schedules').insert(data).select().single();
       print('Supabase Add: Success');
       _refreshController.add(null);
-      return true;
+      return response['id'] as String?;
     } catch (e) {
       print('Supabase Insert Error: $e');
-      return false;
+      return null;
     }
   }
 

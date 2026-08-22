@@ -206,9 +206,9 @@ class _MedicineScreenState extends State<MedicineScreen> {
                         _mqttService.publishCommand('add_schedule', schedule.toEsp32Json());
                       }
 
-                      final success = await _supabaseService.addSchedule(schedule);
-                      if (success) {
-                        await _notificationService.scheduleMedicineAlarm(DateTime.now().toIso8601String(), schedule.medicineName, selectedTime.format(context));
+                      final newId = await _supabaseService.addSchedule(schedule);
+                      if (newId != null) {
+                        await _notificationService.scheduleMedicineAlarm(newId, schedule.medicineName, selectedTime.format(context));
                         if (mounted) Navigator.pop(context);
                       }
                       if (mounted) setModalState(() => isSaving = false);
