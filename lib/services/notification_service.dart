@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
@@ -185,7 +186,7 @@ class NotificationService {
         fullScreenIntent: true,
         category: AndroidNotificationCategory.alarm,
         audioAttributesUsage: AudioAttributesUsage.alarm,
-        insistent: true,
+        additionalFlags: Int32List.fromList([4]),
         actions: <AndroidNotificationAction>[
           const AndroidNotificationAction(
             'stop_alarm',
@@ -206,7 +207,7 @@ class NotificationService {
         enableVibration: vibrationEnabled,
         category: soundType == 'alarm' ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.reminder,
         fullScreenIntent: true,
-        insistent: true,
+        additionalFlags: Int32List.fromList([4]),
         actions: <AndroidNotificationAction>[
           const AndroidNotificationAction(
             'stop_alarm',
